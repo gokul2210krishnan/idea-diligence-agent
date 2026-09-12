@@ -29,41 +29,59 @@ The user does nothing during the investigation. Submit an idea → get a verdict
 User submits idea
         │
         ▼
-┌──────────────────┐
-│  DiligenceState   │  ← Single source of truth for the investigation
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│   Orchestrator    │  ← Finds the biggest knowledge gap,
-└────────┬─────────┘    dispatches the right specialist
-         │
-    ┌────┴────┐  ┌──────────┐  ┌───────────────┐
-    │ Problem │  │Competition│  │  Economics     │
-    │  Agent  │  │   Agent   │  │    Agent       │
-    └────┬────┘  └─────┬─────┘  └──────┬────────┘
-         │             │               │
-         └─────────────┼───────────────┘
-                       │
-                       ▼
-              Update DiligenceState
-                       │
-                       ▼
-              Enough evidence?
-                 ╱              ╲
-               NO               YES
-                │                 │
-         Loop back to         Render
-         Orchestrator          Verdict
+┌──────────────────────┐
+│ Safety & Scope Gate  │  ← Boundary 1: Rejects adversarial prompts & out-of-scope ideas
+└──────────┬───────────┘
+           │ ACCEPT
+           ▼
+┌──────────────────────┐
+│   DiligenceState     │  ← Canonical state for the session
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│    Orchestrator      │  ← Controlled by Hard Runtime & Budget Governor (Boundary 2)
+└──────────┬───────────┘     Triage unknowns by decision impact (Boundary 5)
+           │
+     ┌─────┴─────┐  ┌───────────┐  ┌───────────────┐
+     │  Problem  │  │Competition│  │  Economics     │
+     │   Agent   │  │   Agent   │  │    Agent       │
+     └─────┬─────┘  └─────┬─────┘  └──────┬────────┘
+           │              │               │
+           └──────────────┼───────────────┘
+                          │ Calls tools (Web search / Scraper)
+                          ▼
+            [Untrusted Web Content Boundary]  ← Boundary 3: Envelopes external text as inert XML
+                          │
+                          ▼
+             Candidate Finding Proposals
+                          │
+                          ▼
+            [State Authority & Update Layer]  ← Boundary 4: Validate Schema ➔ Policy ➔ Merge
+                          │
+                          ▼
+                Update DiligenceState
+                          │
+                          ▼
+                 Enough evidence?
+                    ╱          ╲
+                  NO           YES
+                   │             │
+            Loop back to      Render
+            Orchestrator      Verdict
 ```
 
-### Key Design Decisions (from Gokul's architecture review)
+### Key Design & Governance Invariants
 
-- **Adaptive loop, not a fixed pipeline.** The orchestrator decides what to research next based on what's currently unknown — not a rigid Problem → Competition → Economics sequence.
-- **Canonical DiligenceState.** All agents read from and write to a single Pydantic model. No isolated essays. Every finding becomes a structured update.
-- **Evidence classification.** Every finding is tagged as `FACT`, `ASSUMPTION`, `INFERENCE`, or `UNKNOWN`. The orchestrator uses the UNKNOWNs to decide what to research next.
-- **Session isolation.** Each idea gets its own state. No cross-contamination between investigations.
-- **Bounded execution.** Maximum 5 research cycles to prevent infinite loops and runaway token costs.
+- **Adaptive loop, not a fixed pipeline.** The orchestrator decides what to research next based on what's currently unknown — not a rigid sequential chain.
+- **Canonical DiligenceState & Session Isolation.** Single source of truth per investigation. No state leakage between sessions.
+- **Evidence classification.** Every finding is classified as `FACT`, `ASSUMPTION`, `INFERENCE`, or `UNKNOWN`, preserving provenance and source URLs.
+- **5 Defense-in-Depth Boundaries (Phase 2):**
+  1. **Safety & Scope Gate:** Pre-flight screen rejects jailbreaks, malicious prompts, and off-topic requests before agent invocation.
+  2. **Hard Runtime Budget Governor:** Deterministic limits in Python (`MAX_ITERATIONS = 5`, `MAX_TOOL_CALLS = 25`, `MAX_WALLCLOCK_SECONDS = 180s`) prevent runaway loops and cloud bill spikes.
+  3. **Untrusted Web Content Boundary:** Web scrape content is quarantined in `<untrusted_external_evidence>` XML tags so third-party sites cannot perform indirect prompt injections.
+  4. **Restricted Authority (Propose-Validate-Merge):** Specialist agents propose candidate findings; a deterministic Python layer validates schema, checks domain authorization, and verifies provenance before merging into state.
+  5. **Decision-Impact Unknown Triage:** Unknowns are prioritized by decision impact (`CRITICAL` vs `LOW`), ensuring research targets thesis dealbreakers rather than trivia.
 
 ---
 
@@ -87,8 +105,11 @@ idea-diligence-agent/
 ├── CHANGELOG.md                  # Phase progress tracking
 ├── brainstorming/                # Project design & discussion documents
 │   ├── Idea Diligence Agent - Project.docx   # Full project spec (Edmund + Gokul points)
-│   └── Idea Diligence Agent - Project.pdf    # PDF export of the project spec
+│   ├── Idea Diligence Agent - Project.pdf    # PDF export of the project spec
+│   ├── Idea Diligence Agent - Security & Governance Architecture.docx  # Phase 2 security architecture (Word)
+│   └── SECURITY_AND_GOVERNANCE_ARCHITECTURE.md                        # Phase 2 security architecture (Markdown)
 ├── scripts/                      # Utility and document generation scripts
+│   ├── build_security_doc.py     # Generates styled Word doc for security architecture
 │   ├── generate_pdf.py           # Generates styled PDF from docx
 │   └── update_project_doc.py     # Injects synthesized points into spec
 ├── src/
@@ -213,12 +234,16 @@ python -m src.main
 
 ## What's Next
 
-### Phase 2: Multi-Agent Loop (Priority)
+### Phase 2: Multi-Agent Loop & Governance (Priority)
 
-1. Wire `DiligenceState` into the orchestrator so agents produce structured updates, not free-text
-2. Implement the adaptive loop: orchestrator inspects UNKNOWNs → dispatches specialist → merges findings → repeat or verdict
-3. Run the first live end-to-end test with a real idea
-4. Switch from agents-as-tools to Strands Graph if the loop needs conditional routing
+1. **Governance & Safety Package (`src/governance/`):**
+   - `safety_gate.py`: Pre-flight screening to reject jailbreaks and off-topic tasks before invoking agents.
+   - `budget_governor.py`: Deterministic circuit breakers capping iterations (max 5), tool calls (max 25), and wallclock time (180s).
+   - `data_sanitizer.py`: Quarantine raw scraped web text inside inert `<untrusted_external_evidence>` XML tags.
+   - `state_updater.py`: Propose ➔ Validate ➔ Policy Check ➔ Merge pipeline ensuring LLMs cannot freely mutate state.
+2. **Decision-Impact Unknowns:** Upgrade `UnknownItem` in `src/models.py` to prioritize research on thesis dealbreakers (`CRITICAL`) over minor trivia (`LOW`).
+3. **Adaptive Loop:** Orchestrator inspects prioritized UNKNOWNs → dispatches specialists → merges findings via governance layer → evaluates budget/evidence → repeat or render verdict.
+4. **Live End-to-End Test:** Run the complete loop against a real business idea.
 
 ### Phase 3: Verdict & Polish
 

@@ -47,6 +47,12 @@ All notable progress on the hackathon build, tracked by phase.
 - Command-line mode: `python -m src.main "Your idea here"`
 - Interactive mode: prompts for input if no arguments given
 
+### Documentation & Governance Architecture
+- `README.md` — Updated with complete architecture, defense-in-depth boundaries, and setup walkthrough
+- `brainstorming/Idea Diligence Agent - Project.docx` & `.pdf` — Full project specification synthesized with Edmund + Gokul architecture review
+- `brainstorming/SECURITY_AND_GOVERNANCE_ARCHITECTURE.md` & `.docx` — Comprehensive guide to the 5 defense boundaries (Safety Gate, Budget Governor, Untrusted Web Data Boundary, State Authority Layer, Decision-Impact Unknowns)
+- `scripts/build_security_doc.py` — Automated styled Word doc generator for the governance spec
+
 ### Verified
 - All Pydantic model imports and instantiation ✅
 - All Strands SDK imports (`Agent`, `@tool`, `BedrockModel`, `http_request`) ✅
@@ -54,29 +60,38 @@ All notable progress on the hackathon build, tracked by phase.
 - All prompt imports ✅
 - Full orchestrator creation chain ✅
 - AWS credentials authenticated via `sts.get_caller_identity()` ✅
+- Branch pushed and Pull Request #1 opened on GitHub ✅
 
-### Not Yet Done
-- No live end-to-end run with a real idea (agents wired but not exercised)
-- DiligenceState not yet integrated into the orchestrator loop (agents return free-text, not structured state updates)
-- No Strands Graph pattern (using agents-as-tools for now)
-- No verdict formatting
-- No web UI
-- No demo video
+### Not Yet Done (Deferred to Phase 2)
+- Live end-to-end run with a real idea
+- Governance package (`src/governance/`) implementation
+- Wiring `DiligenceState` into the orchestrator loop via the propose-validate-merge layer
+- Decision-impact unknown triage model
+- Verdict formatting and demo UI
 
 ---
 
-## Phase 2: Multi-Agent Loop — ⬜ NOT STARTED
+## Phase 2: Multi-Agent Loop & Governance Layer — ⬜ NOT STARTED
 
-**Goal:** Wire DiligenceState into the orchestrator, implement the adaptive research loop, run the first real investigation.
+**Goal:** Implement defense-in-depth governance (`src/governance/`), upgrade `DiligenceState` with decision-impact unknowns, wire the adaptive loop, and run the first live investigation.
+
+### Planned Deliverables
+1. **Safety & Scope Gate (`safety_gate.py`):** Pre-screen ideas before LLM invocation to reject adversarial or off-topic prompts.
+2. **Hard Runtime Budget Governor (`budget_governor.py`):** Deterministic caps on loops (max 5), tool calls (max 25), and runtime (180s).
+3. **Untrusted Data Isolation (`data_sanitizer.py`):** Quarantining external web scrape results within inert XML tags against prompt injection.
+4. **State Authority Layer (`state_updater.py`):** Propose-Validate-Policy-Merge pipeline ensuring agents cannot corrupt state.
+5. **Decision-Impact Unknowns Model:** Typed `UnknownItem` (`CRITICAL` vs `LOW`) to focus the adaptive loop on thesis dealbreakers.
+6. **Adaptive Orchestrator Loop:** Dynamic dispatch based on open critical unknowns with budget tracking.
+7. **Live End-to-End Test:** Execution with a real business idea.
 
 ---
 
 ## Phase 3: Verdict & Polish — ⬜ NOT STARTED
 
-**Goal:** Build the verdict engine, format output as a diligence report, add demo UI.
+**Goal:** Build the verdict synthesis engine (GO/MODIFY/KILL), format output as a rich diligence report, add demo UI.
 
 ---
 
 ## Phase 4: Demo & Submission — ⬜ NOT STARTED
 
-**Goal:** Record video, write submission, deploy (optional), submit to Devpost.
+**Goal:** Record 5-min video, write submission copy, deploy (optional), submit to Devpost.
