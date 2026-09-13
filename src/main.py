@@ -9,7 +9,9 @@ Or run it without arguments for interactive mode.
 """
 
 import sys
+from dotenv import load_dotenv
 
+load_dotenv()
 from src.agents.orchestrator import run_diligence
 
 

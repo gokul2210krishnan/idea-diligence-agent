@@ -18,7 +18,7 @@ import json
 from datetime import datetime
 
 from strands import Agent, tool
-from strands.models.bedrock import BedrockModel
+from src.model_provider import ModelRole, create_model
 
 from src.agents.problem_agent import create_problem_agent
 from src.agents.competition_agent import create_competition_agent
@@ -125,10 +125,7 @@ def create_orchestrator() -> Agent:
     Returns:
         A Strands Agent configured as the orchestrator.
     """
-    model = BedrockModel(
-        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
-        region_name="us-east-1",
-    )
+    model = create_model(ModelRole.PROBLEM)
 
     orchestrator = Agent(
         model=model,
