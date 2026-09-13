@@ -71,27 +71,50 @@ All notable progress on the hackathon build, tracked by phase.
 
 ---
 
-## Phase 2: Multi-Agent Loop & Governance Layer — ⬜ NOT STARTED
+## Phase 2: Multi-Agent Loop & Governance Layer — ✅ COMPLETE
 
-**Goal:** Implement defense-in-depth governance (`src/governance/`), upgrade `DiligenceState` with decision-impact unknowns, wire the adaptive loop, and run the first live investigation.
+**Goal:** Implement defense-in-depth governance (`src/governance/`), upgrade `DiligenceState` with decision-impact unknowns, and wire the adaptive loop.
 
-### Planned Deliverables
-1. **Safety & Scope Gate (`safety_gate.py`):** Pre-screen ideas before LLM invocation to reject adversarial or off-topic prompts.
-2. **Hard Runtime Budget Governor (`budget_governor.py`):** Deterministic caps on loops (max 5), tool calls (max 25), and runtime (180s).
-3. **Untrusted Data Isolation (`data_sanitizer.py`):** Quarantining external web scrape results within inert XML tags against prompt injection.
-4. **State Authority Layer (`state_updater.py`):** Propose-Validate-Policy-Merge pipeline ensuring agents cannot corrupt state.
-5. **Decision-Impact Unknowns Model:** Typed `UnknownItem` (`CRITICAL` vs `LOW`) to focus the adaptive loop on thesis dealbreakers.
-6. **Adaptive Orchestrator Loop:** Dynamic dispatch based on open critical unknowns with budget tracking.
-7. **Live End-to-End Test:** Execution with a real business idea.
+### Added
+- `src/governance/safety_gate.py` — deterministic + semantic pre-screen
+- `src/governance/budget_governor.py` — iteration, tool-call, and wall-clock caps
+- `src/governance/data_sanitizer.py` — untrusted web envelopes
+- `src/governance/state_updater.py` — propose / validate / merge
+- Decision-impact `UnknownItem` and adaptive orchestrator dispatch
 
 ---
 
-## Phase 3: Verdict & Polish — ⬜ NOT STARTED
+## Phase 3: Verdict & Polish — ✅ COMPLETE (Sep 13, 2026)
 
-**Goal:** Build the verdict synthesis engine (GO/MODIFY/KILL), format output as a rich diligence report, add demo UI.
+**Goal:** Build the verdict synthesis engine, format a professional diligence report, and add demo UI.
+
+### Added
+- `src/evidence.py` — second-pass FACT/ASSUMPTION/INFERENCE/UNKNOWN classifier and confidence scoring
+- `src/verdict.py` — deterministic GO/MODIFY/KILL engine with optional hybrid prose
+- `src/report.py` — markdown, JSON, and Rich terminal dossiers
+- `src/web/` — FastAPI demo UI with verdict stamp, dimension scores, and evidence ledger
+- CLI flags: `--demo`, `--json`, `--output`, `--web`
+- `VerdictReport` now includes dimension scores, evidence mix, risks, and next steps
+- Evidence items carry a `category` through the state updater
+
+### Verified
+- Unit tests for classifier, scoring rules, GO/MODIFY/KILL paths, and report rendering
+- Web API health, demo, and mocked live endpoints
+- CLI `--demo` JSON and markdown export
 
 ---
 
-## Phase 4: Demo & Submission — ⬜ NOT STARTED
+## Phase 4: Demo & Submission — ✅ COMPLETE (Sep 13, 2026)
 
-**Goal:** Record 5-min video, write submission copy, deploy (optional), submit to Devpost.
+**Goal:** Make the project demoable and submission-ready.
+
+### Added
+- `SUBMISSION.md` — Devpost copy (inspiration, build, challenges, what's next)
+- `DEMO.md` — timed 5-minute walkthrough script
+- `examples/sample_investigation.json` — canned restaurant-inventory investigation
+- `test/` suite + `pytest.ini` (no API keys required)
+- README updated for verdict engine, web UI, and test commands
+
+### Operator follow-ups (not in repo)
+- Record the Devpost video from `DEMO.md`
+- Optional AWS AgentCore deploy / builder.aws.com post

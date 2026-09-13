@@ -31,12 +31,9 @@ from src.prompts import ORCHESTRATOR_PROMPT
 from src.governance.safety_gate import evaluate_scope_and_safety, ScopeResult
 from src.governance.budget_governor import BudgetGovernor
 from src.governance.state_updater import validate_and_merge, FindingProposal
-from src.models import (
-    DiligenceState,
-    EvidenceType,
-    DecisionImpact,
-    UnknownStatus,
-)
+from src.models import DiligenceState, UnknownStatus
+from src.report import render_markdown_report
+from src.verdict import synthesize_verdict
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +280,7 @@ def run_diligence(idea: str) -> tuple[str, DiligenceState, ScopeResult, dict]:
     global _session_state, _session_governor
 
     print(f"\n{'='*60}")
-    print(f"  IDEA DILIGENCE AGENT - Phase 2: Governed Pipeline")
+    print(f"  IDEA DILIGENCE AGENT — Governed Pipeline + Verdict Engine")
     print(f"{'='*60}")
     print(f"\n  Idea: {idea}")
     print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -352,13 +349,24 @@ Run an adaptive investigation:
 Be thorough but budget-conscious. The goal is an evidence-backed decision."""
 
     result = orchestrator(prompt)
-    verdict_text = str(result)
+    orchestrator_text = str(result)
 
     # Record final iteration
     governor.record_iteration()
 
-    # --- Step 4: Compile results ---
+    # --- Step 4: Verdict engine ---
+    print(f"\n{'-'*60}")
+    print(f"  [VERDICT ENGINE] Classifying evidence and scoring the idea...")
+    print(f"{'-'*60}")
+    report = synthesize_verdict(state, orchestrator_text=orchestrator_text, use_llm=True)
+    print(
+        f"  Decision: {report.decision.value}  "
+        f"({report.confidence:.0%} confidence, {report.method})"
+    )
+
+    # --- Step 5: Compile results ---
     budget_status = governor.get_status()
+    formatted = render_markdown_report(state, scope_result, budget_status)
 
     print(f"\n{'='*60}")
     print(f"  INVESTIGATION COMPLETE")
@@ -378,4 +386,4 @@ Be thorough but budget-conscious. The goal is an evidence-backed decision."""
     _session_state = None
     _session_governor = None
 
-    return verdict_text, state, scope_result, budget_status
+    return formatted, state, scope_result, budget_status

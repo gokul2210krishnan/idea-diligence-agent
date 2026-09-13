@@ -93,7 +93,7 @@ User submits idea
 | Foundation model | **Configurable model provider** — Amazon Bedrock / Gemini | Provider and model selection are configurable through environment variables, while keeping the Strands agent architecture unchanged. |
 | Data models | **Pydantic v2** | Type-safe, validated, serializable state. |
 | Web research | **DuckDuckGo** (via `http_request`) | Free, no API key, works immediately. |
-| Interface | **Python CLI** | MVP for hackathon demo. Web UI planned for Phase 3. |
+| Interface | **Rich CLI + local web UI** | `python -m src.main` for the terminal dossier; `python -m src.main --web` for the demo UI. |
 
 ---
 
@@ -103,28 +103,27 @@ User submits idea
 idea-diligence-agent/
 ├── requirements.txt              # Python dependencies
 ├── CHANGELOG.md                  # Phase progress tracking
+├── SUBMISSION.md                 # Devpost submission copy
+├── DEMO.md                       # 5-minute hackathon video script
+├── pytest.ini                    # Test discovery
+├── examples/
+│   └── sample_investigation.json # Canned demo dossier
 ├── brainstorming/                # Project design & discussion documents
-│   ├── Idea Diligence Agent - Project.docx   # Full project spec (Edmund + Gokul points)
-│   ├── Idea Diligence Agent - Project.pdf    # PDF export of the project spec
-│   ├── Idea Diligence Agent - Security & Governance Architecture.docx  # Phase 2 security architecture (Word)
-│   └── SECURITY_AND_GOVERNANCE_ARCHITECTURE.md                        # Phase 2 security architecture (Markdown)
 ├── scripts/                      # Utility and document generation scripts
-│   ├── build_security_doc.py     # Generates styled Word doc for security architecture
-│   ├── generate_pdf.py           # Generates styled PDF from docx
-│   └── update_project_doc.py     # Injects synthesized points into spec
+├── test/                         # Governance, verdict, report, CLI, and UI tests
 ├── src/
-│   ├── __init__.py               # Package marker
-│   ├── main.py                   # CLI entry point
-│   ├── models.py                 # DiligenceState + all Pydantic data models
-│   ├── model_provider.py         # Model-provider abstraction and environment-based model configuration
-│   ├── prompts.py                # System prompts for all 4 agents
-│   ├── tools.py                  # Custom Strands tools (search, read, save)
-│   └── agents/
-│       ├── __init__.py           # Package marker
-│       ├── orchestrator.py       # Orchestrator agent + agents-as-tools wiring
-│       ├── problem_agent.py      # Problem Analysis specialist
-│       ├── competition_agent.py  # Competition Analysis specialist
-│       └── economics_agent.py    # Economics Analysis specialist
+│   ├── main.py                   # CLI + --web / --demo / --json entry point
+│   ├── models.py                 # DiligenceState + verdict models
+│   ├── evidence.py               # FACT/ASSUMPTION/INFERENCE/UNKNOWN classifier
+│   ├── verdict.py                # GO / MODIFY / KILL synthesis engine
+│   ├── report.py                 # Markdown, JSON, and rich terminal reports
+│   ├── demo_data.py              # Loader for the canned investigation
+│   ├── model_provider.py         # Bedrock / Gemini configuration
+│   ├── prompts.py                # Specialist, orchestrator, and verdict prompts
+│   ├── tools.py                  # search_web, read_webpage, save_finding
+│   ├── governance/               # Safety gate, budget, sanitizer, state updater
+│   ├── agents/                   # Orchestrator + three specialists
+│   └── web/                      # FastAPI demo UI
 └── LICENSE                       # Apache 2.0
 ```
 
@@ -235,44 +234,68 @@ python -m src.main
 
 ### What Was NOT Done Yet (Phase 2+)
 
-- ❌ DiligenceState is not yet wired into the orchestrator loop (agents currently return research output rather than structured state updates)
-- ❌ No Strands Graph pattern yet (currently using agents-as-tools; Graph can support the future cyclic workflow)
-- ❌ Governance boundaries are not yet implemented in code
-- ❌ No adaptive research loop driven by prioritized unknowns
-- ❌ No final professional verdict/report formatting
-- ❌ No web UI
-- ❌ No demo video
-- ❌ No README submission copy
+These gaps were closed in later phases. Phase 2 wired governance and `DiligenceState`. Phase 3 added the verdict engine and professional report. Phase 4 added the demo UI and submission pack.
 
 ---
 
-## What's Next
+## Phase 2 Status: ✅ COMPLETE — Governed Multi-Agent Loop
 
-### Phase 2: Multi-Agent Loop & Governance (Current Priority)
+Defense-in-depth is implemented in `src/governance/`: safety gate, budget governor, untrusted-web sanitizer, propose-validate-merge state updater, and decision-impact unknowns. The orchestrator runs an adaptive investigation and merges specialist findings into `DiligenceState`.
 
-1. **Governance & Safety Package (`src/governance/`):**
-   - `safety_gate.py`: Pre-flight screening to reject jailbreaks and off-topic tasks before invoking agents.
-   - `budget_governor.py`: Deterministic circuit breakers capping iterations (max 5), tool calls (max 25), and wallclock time (180s).
-   - `data_sanitizer.py`: Quarantine raw scraped web text inside inert `<untrusted_external_evidence>` XML tags.
-   - `state_updater.py`: Propose ➔ Validate ➔ Policy Check ➔ Merge pipeline ensuring LLMs cannot freely mutate state.
-2. **Decision-Impact Unknowns:** Upgrade `UnknownItem` in `src/models.py` to prioritize research on thesis dealbreakers (`CRITICAL`) over minor trivia (`LOW`).
-3. **Adaptive Loop:** Orchestrator inspects prioritized UNKNOWNs → dispatches specialists → merges findings via governance layer → evaluates budget/evidence → repeat or render verdict.
-4. **State integration:** Wire the canonical `DiligenceState` through the research loop so specialist findings become structured state updates.
-5. **Live End-to-End Test:** Run the complete governed loop against a real business idea.
+---
 
-### Phase 3: Verdict & Polish
+## Phase 3 Status: ✅ COMPLETE — Verdict & Polish
 
-1. Build the verdict synthesis engine (GO / MODIFY / KILL with structured evidence)
-2. Format output as a professional diligence report
-3. Add a simple web UI or rich CLI for the demo video
+### Verdict synthesis engine ([`src/verdict.py`](src/verdict.py))
 
-### Phase 4: Demo & Submission
+After research, the engine:
 
-1. Record 5-min hackathon video
-2. Write submission description
-3. Finalize README
-4. (Optional) Deploy on AWS AgentCore for bonus points
-5. (Bonus) Post on builder.aws.com
+1. Reclassifies every finding ([`src/evidence.py`](src/evidence.py)) — unsourced FACTs are downgraded, hedging language cannot stay a FACT, confidence is recalibrated.
+2. Scores three dimensions: **problem**, **competition**, **economics**.
+3. Applies deterministic rules: weak problem or unviable economics → **KILL**; strong scores, sourced facts, no critical unknowns → **GO**; otherwise **MODIFY** with concrete changes.
+4. Optionally blends orchestrator/LLM prose when it **agrees** with the scored decision. The model cannot override a KILL the evidence already supports.
+
+The output is a `VerdictReport`: decision, confidence, summary, key evidence, modifications, unknowns, assumptions, risks, next steps, and evidence mix.
+
+### Professional report ([`src/report.py`](src/report.py))
+
+The same investigation renders as:
+
+- Markdown dossier (CLI default / `--output report.md`)
+- JSON (`--json` or `--output report.json`)
+- Colorized terminal panel via Rich
+
+### Demo surfaces
+
+```bash
+python -m src.main --demo                  # canned restaurant-inventory dossier, no LLM
+python -m src.main --json --demo           # machine-readable
+python -m src.main --web                   # local UI at http://127.0.0.1:8000
+python -m src.main "Your product idea"     # live governed investigation
+```
+
+The web UI (`src/web/`) shows the verdict stamp, dimension bars, evidence ledger, governance chips, and the full markdown report. **Load demo dossier** is instant; **Run live investigation** calls the real pipeline.
+
+---
+
+## Phase 4 Status: ✅ COMPLETE — Demo & Submission Pack
+
+| Deliverable | Location |
+|---|---|
+| Devpost submission copy | [`SUBMISSION.md`](SUBMISSION.md) |
+| 5-minute video script | [`DEMO.md`](DEMO.md) |
+| Canned walkthrough data | [`examples/sample_investigation.json`](examples/sample_investigation.json) |
+| Automated tests | `test/` — run with `python -m pytest` |
+
+Recording the Devpost video and posting to builder.aws.com are operator steps (see `DEMO.md`). Optional AWS AgentCore hosting is not part of this branch.
+
+---
+
+## What's Next (post-hackathon)
+
+- Hosted demo on AWS AgentCore
+- Stronger cross-finding contradiction detection
+- Batch mode: many ideas → many dossiers
 
 ---
 
@@ -320,10 +343,26 @@ For Bedrock, configure AWS credentials using your normal AWS credential chain (f
 **3. Run:**
 
 ```bash
+# Live investigation (needs model credentials)
 python -m src.main "An app that helps small restaurants track food inventory to reduce waste"
+
+# Instant demo dossier (no model calls)
+python -m src.main --demo
+
+# Local web UI
+python -m src.main --web
 ```
 
 The same CLI entry point works with either configured provider. Provider/model selection is handled by `src/model_provider.py` rather than being hard-coded inside individual agents.
+
+**4. Test:**
+
+```bash
+pip install -r requirements.txt
+python -m pytest
+```
+
+Tests cover the safety gate, budget governor, sanitizer, state updater, evidence classifier, verdict rules, report renderer, CLI, and web API. They do not require API keys.
 
 ---
 

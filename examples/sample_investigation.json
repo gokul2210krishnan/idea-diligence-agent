@@ -1,0 +1,152 @@
+{
+  "idea": "An app that helps independent restaurants track food inventory to reduce waste",
+  "problem": {
+    "problem_statement": "Independent restaurants lose money on spoiled inventory and over-ordering because they still track stock with paper lists and spreadsheets.",
+    "severity": "high",
+    "existing_solutions": [
+      "Paper clipboards and weekly walk-in counts",
+      "Generic spreadsheets",
+      "Full-suite POS inventory modules"
+    ],
+    "demand_signals": [
+      "Restaurant owners discuss waste on operator forums",
+      "Incumbent reviews complain that inventory tools are too complex"
+    ]
+  },
+  "customers": [
+    {
+      "name": "Independent restaurants with 1-3 locations",
+      "pain_points": [
+        "Food waste eats thin margins",
+        "Managers lack time for complex inventory software"
+      ],
+      "size_estimate": "Hundreds of thousands of independent US restaurants"
+    }
+  ],
+  "competitors": [
+    {
+      "name": "MarketMan",
+      "description": "Restaurant inventory and purchasing platform used by multi-location operators.",
+      "pricing": "From about $99–$249/month",
+      "strengths": ["Deep inventory workflows"],
+      "weaknesses": ["Too heavy for a single independent cafe"],
+      "url": "https://www.marketman.com"
+    },
+    {
+      "name": "BlueCart",
+      "description": "Ordering and inventory for foodservice businesses.",
+      "pricing": "Mid-market subscription",
+      "strengths": ["Purchasing integrations"],
+      "weaknesses": ["Broader suite than a waste-first tool"],
+      "url": "https://www.bluecart.com"
+    }
+  ],
+  "economics": {
+    "market_size": "US restaurant inventory / back-office software is a multi-hundred-million-dollar category.",
+    "revenue_potential": "Realistic independent-restaurant pricing sits near $49–$99/month, not $300+ enterprise suites.",
+    "business_models": [
+      {
+        "model_type": "subscription",
+        "pricing_range": "$49–$99 / location / month",
+        "reasoning": "Matches SMB restaurant software willingness to pay and undercuts heavy incumbents."
+      }
+    ],
+    "unit_economics": "Viable only if onboarding stays product-led; high-touch sales would erase SMB margins."
+  },
+  "evidence": [
+    {
+      "content": "Independent restaurants routinely cite food waste as a margin problem and still use clipboards or spreadsheets.",
+      "evidence_type": "FACT",
+      "source": "https://www.nrn.com",
+      "confidence": 0.82,
+      "category": "problem"
+    },
+    {
+      "content": "The pain is high severity for independent restaurants with 1-3 locations because spoilage hits already-thin food costs.",
+      "evidence_type": "INFERENCE",
+      "source": "",
+      "confidence": 0.64,
+      "category": "customer"
+    },
+    {
+      "content": "MarketMan charges roughly $99–$249/month and targets operators who need full inventory and purchasing.",
+      "evidence_type": "FACT",
+      "source": "https://www.marketman.com/pricing",
+      "confidence": 0.88,
+      "category": "competitor"
+    },
+    {
+      "content": "Users complain that existing inventory suites are too complex for a single independent restaurant.",
+      "evidence_type": "FACT",
+      "source": "https://www.g2.com",
+      "confidence": 0.8,
+      "category": "competitor"
+    },
+    {
+      "content": "There is a gap for a waste-first, lightweight tool, but the broader inventory category is crowded with incumbents.",
+      "evidence_type": "INFERENCE",
+      "source": "",
+      "confidence": 0.58,
+      "category": "opportunity"
+    },
+    {
+      "content": "Realistic pricing for independents is $49–$99/month; a $300 suite is unlikely to sell to this buyer.",
+      "evidence_type": "INFERENCE",
+      "source": "",
+      "confidence": 0.62,
+      "category": "pricing"
+    },
+    {
+      "content": "We assume owners will adopt an iPad app without changing kitchen habits.",
+      "evidence_type": "ASSUMPTION",
+      "source": "",
+      "confidence": 0.35,
+      "category": "customer"
+    },
+    {
+      "content": "Average customer acquisition cost for independent restaurants in this category is unknown.",
+      "evidence_type": "UNKNOWN",
+      "source": "",
+      "confidence": 0.2,
+      "category": "market_size"
+    }
+  ],
+  "unknowns": [
+    {
+      "question": "What is a realistic CAC for independent restaurant software sold product-led?",
+      "category": "market_size",
+      "importance": "HIGH",
+      "hypothesis": "If CAC exceeds ~3 months of subscription, SMB unit economics break.",
+      "status": "OPEN"
+    },
+    {
+      "question": "Will line cooks actually log waste daily without manager enforcement?",
+      "category": "customer",
+      "importance": "CRITICAL",
+      "hypothesis": "Adoption fails unless logging is automatic or takes under 30 seconds.",
+      "status": "OPEN"
+    }
+  ],
+  "research_history": [
+    {
+      "agent_name": "problem_agent",
+      "action": "Researched problem and customers",
+      "timestamp": "2026-09-13T16:00:00",
+      "findings_summary": "Confirmed waste pain for independents; current workaround is spreadsheets."
+    },
+    {
+      "agent_name": "competition_agent",
+      "action": "Researched competitors and gaps",
+      "timestamp": "2026-09-13T16:02:00",
+      "findings_summary": "MarketMan and BlueCart exist; complexity complaints create a wedge."
+    },
+    {
+      "agent_name": "economics_agent",
+      "action": "Evaluated economics and viability",
+      "timestamp": "2026-09-13T16:04:00",
+      "findings_summary": "SMB pricing works only with low-touch onboarding."
+    }
+  ],
+  "iteration_count": 3,
+  "max_iterations": 5
+}

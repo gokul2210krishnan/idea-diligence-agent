@@ -61,6 +61,10 @@ class Evidence(BaseModel):
     evidence_type: EvidenceType = Field(description="FACT, ASSUMPTION, INFERENCE, or UNKNOWN")
     source: Optional[str] = Field(default=None, description="Where this came from (URL, report, etc.)")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="How confident we are (0-1)")
+    category: str = Field(
+        default="general",
+        description="Research area: problem, customer, competitor, pricing, market_size, etc.",
+    )
 
 
 class CustomerSegment(BaseModel):
@@ -140,6 +144,21 @@ class EconomicAnalysis(BaseModel):
     unit_economics: Optional[str] = Field(default=None, description="Cost vs. revenue per customer")
 
 
+class EvidenceBreakdown(BaseModel):
+    """Counts of evidence by epistemic type."""
+    facts: int = 0
+    assumptions: int = 0
+    inferences: int = 0
+    unknowns: int = 0
+
+
+class DimensionScores(BaseModel):
+    """0-1 scores for the three diligence dimensions."""
+    problem: float = Field(default=0.5, ge=0.0, le=1.0)
+    competition: float = Field(default=0.5, ge=0.0, le=1.0)
+    economics: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
 class VerdictReport(BaseModel):
     """The final verdict with supporting evidence."""
     decision: Verdict = Field(description="GO, MODIFY, or KILL")
@@ -158,6 +177,15 @@ class VerdictReport(BaseModel):
         default_factory=list,
         description="What the verdict depends on being true",
     )
+    evidence_breakdown: EvidenceBreakdown = Field(default_factory=EvidenceBreakdown)
+    dimension_scores: DimensionScores = Field(default_factory=DimensionScores)
+    risks: list[str] = Field(default_factory=list, description="Key risks that could invalidate the verdict")
+    next_steps: list[str] = Field(default_factory=list, description="Recommended actions after this verdict")
+    method: str = Field(
+        default="deterministic",
+        description="How the verdict was produced: deterministic, llm, or hybrid",
+    )
+    generated_at: datetime = Field(default_factory=datetime.now)
 
 
 class DiligenceState(BaseModel):
@@ -241,13 +269,15 @@ class DiligenceState(BaseModel):
         ))
 
     def add_evidence(self, content: str, evidence_type: EvidenceType,
-                     source: str | None = None, confidence: float = 0.5) -> None:
+                     source: str | None = None, confidence: float = 0.5,
+                     category: str = "general") -> None:
         """Helper to add a new piece of evidence to the state."""
         self.evidence.append(Evidence(
             content=content,
             evidence_type=evidence_type,
             source=source,
             confidence=confidence,
+            category=category,
         ))
 
     def log_action(self, agent_name: str, action: str, findings: str = "") -> None:

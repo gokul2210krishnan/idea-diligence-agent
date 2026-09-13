@@ -214,6 +214,7 @@ def validate_and_merge(
         evidence_type=evidence_type,
         source=proposal.source if proposal.source.strip() else None,
         confidence=proposal.confidence,
+        category=proposal.category or "general",
     )
     state.evidence.append(evidence)
 
