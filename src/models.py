@@ -29,6 +29,21 @@ class EvidenceType(str, Enum):
     UNKNOWN = "UNKNOWN"          # Something important we still don't know
 
 
+class DecisionImpact(str, Enum):
+    """How much an unknown affects the GO / MODIFY / KILL decision."""
+    CRITICAL = "CRITICAL"  # Verdict cannot be trusted without resolving this
+    HIGH = "HIGH"          # Significantly affects confidence in the verdict
+    MEDIUM = "MEDIUM"      # Affects verdict nuance but not direction
+    LOW = "LOW"            # Nice to know, won't change the decision
+
+
+class UnknownStatus(str, Enum):
+    """Lifecycle state of an unknown."""
+    OPEN = "OPEN"                # Not yet investigated
+    INVESTIGATING = "INVESTIGATING"  # An agent is currently researching this
+    RESOLVED = "RESOLVED"        # Answered with evidence
+
+
 class Verdict(str, Enum):
     """The final decision about the idea."""
     GO = "GO"           # Evidence supports proceeding
@@ -70,6 +85,31 @@ class BusinessModel(BaseModel):
     model_type: str = Field(description="E.g., 'subscription', 'usage-based', 'freemium'")
     pricing_range: Optional[str] = Field(default=None, description="Suggested price range")
     reasoning: str = Field(default="", description="Why this model makes sense")
+
+
+class UnknownItem(BaseModel):
+    """A structured unknown — something important the system doesn't know yet.
+
+    Unlike raw strings, UnknownItems carry decision-impact metadata so the
+    adaptive loop can prioritize which gaps to investigate next.
+    """
+    question: str = Field(description="What we don't know (phrased as a question)")
+    category: str = Field(
+        default="general",
+        description="Which research area (problem, customer, competitor, pricing, market_size)",
+    )
+    importance: DecisionImpact = Field(
+        default=DecisionImpact.MEDIUM,
+        description="How much this unknown affects the final verdict",
+    )
+    hypothesis: Optional[str] = Field(
+        default=None,
+        description="Best guess answer (to be validated by research)",
+    )
+    status: UnknownStatus = Field(
+        default=UnknownStatus.OPEN,
+        description="OPEN, INVESTIGATING, or RESOLVED",
+    )
 
 
 class ResearchAction(BaseModel):
@@ -139,7 +179,7 @@ class DiligenceState(BaseModel):
 
     # --- Evidence tracking ---
     evidence: list[Evidence] = Field(default_factory=list)
-    unknowns: list[str] = Field(default_factory=list)
+    unknowns: list[UnknownItem] = Field(default_factory=list)
 
     # --- Audit trail ---
     research_history: list[ResearchAction] = Field(default_factory=list)
@@ -161,11 +201,44 @@ class DiligenceState(BaseModel):
         return self.iteration_count < self.max_iterations
 
     def get_critical_unknowns(self) -> list[str]:
-        """Return unknowns that are tagged as UNKNOWN in evidence."""
-        return [
+        """Return unknowns that are tagged as UNKNOWN in evidence plus open UnknownItems."""
+        evidence_unknowns = [
             e.content for e in self.evidence
             if e.evidence_type == EvidenceType.UNKNOWN
-        ] + self.unknowns
+        ]
+        item_unknowns = [
+            u.question for u in self.unknowns
+            if u.status != UnknownStatus.RESOLVED
+        ]
+        return evidence_unknowns + item_unknowns
+
+    def get_prioritized_unknowns(self) -> list[UnknownItem]:
+        """Return open unknowns sorted by decision impact (CRITICAL first).
+
+        The adaptive loop uses this to decide which gap to investigate next.
+        """
+        priority_order = {
+            DecisionImpact.CRITICAL: 0,
+            DecisionImpact.HIGH: 1,
+            DecisionImpact.MEDIUM: 2,
+            DecisionImpact.LOW: 3,
+        }
+        open_unknowns = [
+            u for u in self.unknowns
+            if u.status != UnknownStatus.RESOLVED
+        ]
+        return sorted(open_unknowns, key=lambda u: priority_order.get(u.importance, 99))
+
+    def add_unknown(self, question: str, category: str = "general",
+                    importance: DecisionImpact = DecisionImpact.MEDIUM,
+                    hypothesis: str | None = None) -> None:
+        """Helper to add a structured unknown to the state."""
+        self.unknowns.append(UnknownItem(
+            question=question,
+            category=category,
+            importance=importance,
+            hypothesis=hypothesis,
+        ))
 
     def add_evidence(self, content: str, evidence_type: EvidenceType,
                      source: str | None = None, confidence: float = 0.5) -> None:
