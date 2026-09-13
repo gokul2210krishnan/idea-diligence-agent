@@ -118,3 +118,30 @@ All notable progress on the hackathon build, tracked by phase.
 ### Operator follow-ups (not in repo)
 - Record the Devpost video from `DEMO.md`
 - Optional AWS AgentCore deploy / builder.aws.com post
+
+---
+
+## Open Source Contributor & Documentation Overhaul — ✅ COMPLETE (Sep 13, 2026)
+
+**Goal:** Provide comprehensive, accessible, and crystal-clear documentation so any open-source contributor can understand, run, test, and contribute to the project.
+
+### Added & Updated
+- `README.md` — Total rewrite with architecture diagram, 5 governance boundaries breakdown, 60-second zero-key quickstart, detailed setup guides for Bedrock and Gemini, CLI reference, and full directory map.
+- `CONTRIBUTING.md` — Comprehensive contributor guide:
+  - Mental model and architecture overview
+  - Automated and manual environment setup across Windows, macOS, and Linux
+  - Zero-key development mode and model provider setup
+  - 42-test testing guide and instructions for writing new tests
+  - Coding standards: Windows console CP1252 ASCII encoding safety rules, Pydantic v2 conventions, and governance invariants
+  - Step-by-step GitHub PR workflow and checklist
+  - High-impact contribution ideas and good first issues
+- `CODE_OF_CONDUCT.md` — Contributor Covenant v2.1 with explicit maintainer contacts and enforcement guidelines.
+- `scripts/setup.ps1` — Automated Windows PowerShell onboarding script (venv, dependencies, .env setup, test verification).
+- `scripts/setup.sh` — Automated Linux/macOS Bash onboarding script.
+- `.github/PULL_REQUEST_TEMPLATE.md` — Structured PR template for contributor submissions.
+
+### Verified
+- All 42 automated tests passing via `python -m pytest` ✅
+- Interactive web workspace verified via `python -m src.main --web` ✅
+- Instant CLI demo verified via `python -m src.main --demo` ✅
+
