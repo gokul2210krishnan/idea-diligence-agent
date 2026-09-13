@@ -17,6 +17,8 @@ import json
 from strands import tool
 from strands_tools import http_request
 
+from src.governance.data_sanitizer import sanitize_web_content
+
 
 @tool
 def search_web(query: str) -> str:
@@ -39,10 +41,13 @@ def search_web(query: str) -> str:
             url=search_url,
             method="GET",
         )
-        # Return raw text — the LLM will parse and extract relevant info
+        # Extract the raw body text
         if isinstance(result, dict):
-            return result.get("body", str(result))
-        return str(result)
+            raw = result.get("body", str(result))
+        else:
+            raw = str(result)
+        # Sanitize external content — strip scripts, invisible chars, wrap in envelope
+        return sanitize_web_content(raw, source_url=search_url)
     except Exception as e:
         return f"Search failed: {str(e)}. Try rephrasing your query."
 
@@ -66,12 +71,11 @@ def read_webpage(url: str) -> str:
             method="GET",
         )
         if isinstance(result, dict):
-            body = result.get("body", "")
-            # Truncate very long pages to avoid overwhelming the LLM context
-            if len(body) > 15000:
-                body = body[:15000] + "\n\n[Content truncated — page was very long]"
-            return body
-        return str(result)[:15000]
+            raw = result.get("body", "")
+        else:
+            raw = str(result)
+        # Sanitize external content — strip scripts, invisible chars, wrap in envelope
+        return sanitize_web_content(raw, source_url=url)
     except Exception as e:
         return f"Failed to read {url}: {str(e)}"
 
