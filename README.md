@@ -90,7 +90,7 @@ User submits idea
 | Component | Technology | Why |
 |---|---|---|
 | Agent framework | **Strands Agents SDK** (Python) | Required by hackathon. We use the "agents-as-tools" pattern. |
-| Foundation model | **Amazon Bedrock** — Claude Sonnet 4 | Strong reasoning + structured output. Strengthens our "built on AWS" score. |
+| Foundation model | **Configurable model provider** — Amazon Bedrock / Gemini | Provider and model selection are configurable through environment variables, while keeping the Strands agent architecture unchanged. |
 | Data models | **Pydantic v2** | Type-safe, validated, serializable state. |
 | Web research | **DuckDuckGo** (via `http_request`) | Free, no API key, works immediately. |
 | Interface | **Python CLI** | MVP for hackathon demo. Web UI planned for Phase 3. |
@@ -116,6 +116,7 @@ idea-diligence-agent/
 │   ├── __init__.py               # Package marker
 │   ├── main.py                   # CLI entry point
 │   ├── models.py                 # DiligenceState + all Pydantic data models
+│   ├── model_provider.py         # Model-provider abstraction and environment-based model configuration
 │   ├── prompts.py                # System prompts for all 4 agents
 │   ├── tools.py                  # Custom Strands tools (search, read, save)
 │   └── agents/
@@ -131,11 +132,21 @@ idea-diligence-agent/
 
 ## Phase 1 Status: ✅ COMPLETE — Walking Skeleton
 
-> **Goal:** Get the full project structure built end-to-end with all agents wired up, all imports verified, and Bedrock connectivity confirmed. Prove the SDK works before adding complexity.
+> **Goal:** Get the full project structure built end-to-end with all agents wired up, all imports verified, and a configurable model provider path working. Prove the SDK and research flow work before adding complexity.
 
 ### What Was Built
 
-#### 1. Data Models ([`src/models.py`](src/models.py))
+#### 1. Model Provider Abstraction ([`src/model_provider.py`](src/model_provider.py))
+
+Model configuration is centralized so agents do not need to hard-code a specific foundation-model provider.
+
+- Supports **Amazon Bedrock** and **Gemini** model providers.
+- Provider/model selection is controlled through environment variables.
+- Supports role-specific model configuration for `PROBLEM`, `COMPETITION`, `ECONOMICS`, and `ORCHESTRATOR`.
+- Falls back to `DEFAULT_MODEL_PROVIDER` / `DEFAULT_MODEL_ID` when a role-specific configuration is not provided.
+- Keeps provider-specific construction isolated from the specialist agents and orchestrator.
+
+#### 2. Data Models ([`src/models.py`](src/models.py))
 
 The `DiligenceState` — our canonical research state (Gokul's core architecture recommendation). Contains:
 
@@ -157,7 +168,7 @@ Helper methods on `DiligenceState`:
 - `get_critical_unknowns()` — collect all UNKNOWN evidence for the orchestrator
 - `add_evidence()` / `log_action()` — structured helpers for agents to update state
 
-#### 2. Custom Research Tools ([`src/tools.py`](src/tools.py))
+#### 3. Custom Research Tools ([`src/tools.py`](src/tools.py))
 
 Three `@tool`-decorated functions that the specialist agents call during research:
 
@@ -167,7 +178,7 @@ Three `@tool`-decorated functions that the specialist agents call during researc
 | `read_webpage(url)` | Fetches and extracts text from a URL. Truncates to 15K chars to stay within context limits. |
 | `save_finding(category, content, evidence_type, source, confidence)` | Records a structured finding tagged as FACT/ASSUMPTION/INFERENCE/UNKNOWN with a source URL and confidence score (0.0–1.0). Returns JSON for the orchestrator to collect. |
 
-#### 3. Agent System Prompts ([`src/prompts.py`](src/prompts.py))
+#### 4. Agent System Prompts ([`src/prompts.py`](src/prompts.py))
 
 Each agent has a detailed system prompt telling it exactly what to research and how to report findings:
 
@@ -178,7 +189,7 @@ Each agent has a detailed system prompt telling it exactly what to research and 
 | `ECONOMICS_AGENT_PROMPT` | Be realistic, not optimistic. Base pricing on competitor data, not wishful thinking. "The market is huge" is useless; "$4.2B TAM based on [source]" is useful. |
 | `ORCHESTRATOR_PROMPT` | Coordinate all three agents, synthesize findings, render a verdict. Be honest — don't default to GO because the user wants to hear it. |
 
-#### 4. Specialist Agents ([`src/agents/`](src/agents/))
+#### 5. Specialist Agents ([`src/agents/`](src/agents/))
 
 Three agent factory functions, each returning a configured `strands.Agent`:
 
@@ -188,14 +199,14 @@ Three agent factory functions, each returning a configured `strands.Agent`:
 | `competition_agent.py` | Competition Analysis | Claude Sonnet 4 (Bedrock, us-east-1) | `search_web`, `read_webpage`, `save_finding` |
 | `economics_agent.py` | Economics Analysis | Claude Sonnet 4 (Bedrock, us-east-1) | `search_web`, `read_webpage`, `save_finding` |
 
-#### 5. Orchestrator ([`src/agents/orchestrator.py`](src/agents/orchestrator.py))
+#### 6. Orchestrator ([`src/agents/orchestrator.py`](src/agents/orchestrator.py))
 
 Uses the **agents-as-tools** pattern from Strands SDK:
 - Each specialist agent is wrapped in a `@tool` function (`problem_agent`, `competition_agent`, `economics_agent`)
 - The orchestrator LLM calls these tools to dispatch research tasks
 - `run_diligence(idea: str) -> str` is the main entry point — give it an idea, get a verdict
 
-#### 6. CLI Entry Point ([`src/main.py`](src/main.py))
+#### 7. CLI Entry Point ([`src/main.py`](src/main.py))
 
 ```bash
 # Pass idea as argument
@@ -212,20 +223,23 @@ python -m src.main
 | Pydantic models import and instantiate correctly | ✅ |
 | `EvidenceType` and `Verdict` enums work | ✅ |
 | Strands SDK `Agent` and `@tool` imports work | ✅ |
-| `BedrockModel` import works | ✅ |
+| Model-provider abstraction imports and initializes correctly | ✅ |
+| Amazon Bedrock model path remains supported | ✅ |
+| Gemini model-provider path works with environment configuration | ✅ |
 | `strands_tools.http_request` import works | ✅ |
 | Custom tools (`search_web`, `read_webpage`, `save_finding`) import | ✅ |
 | System prompts import | ✅ |
 | Orchestrator creation chain imports | ✅ |
-| AWS credentials configured and authenticated | ✅ |
-| All dependencies installed (`strands-agents`, `strands-agents-tools`, `pydantic`) | ✅ |
+| End-to-end Phase 1 investigation runs successfully | ✅ |
+| All dependencies installed (`strands-agents`, `strands-agents-tools`, `pydantic`, `python-dotenv`) | ✅ |
 
 ### What Was NOT Done Yet (Phase 2+)
 
-- ❌ No live end-to-end test run with a real idea (agents built, not exercised yet)
-- ❌ DiligenceState is not yet wired into the orchestrator loop (agents return strings, not structured state updates)
-- ❌ No Strands Graph pattern yet (currently using agents-as-tools; Graph adds cyclic support)
-- ❌ No verdict formatting / pretty output
+- ❌ DiligenceState is not yet wired into the orchestrator loop (agents currently return research output rather than structured state updates)
+- ❌ No Strands Graph pattern yet (currently using agents-as-tools; Graph can support the future cyclic workflow)
+- ❌ Governance boundaries are not yet implemented in code
+- ❌ No adaptive research loop driven by prioritized unknowns
+- ❌ No final professional verdict/report formatting
 - ❌ No web UI
 - ❌ No demo video
 - ❌ No README submission copy
@@ -234,7 +248,7 @@ python -m src.main
 
 ## What's Next
 
-### Phase 2: Multi-Agent Loop & Governance (Priority)
+### Phase 2: Multi-Agent Loop & Governance (Current Priority)
 
 1. **Governance & Safety Package (`src/governance/`):**
    - `safety_gate.py`: Pre-flight screening to reject jailbreaks and off-topic tasks before invoking agents.
@@ -243,7 +257,8 @@ python -m src.main
    - `state_updater.py`: Propose ➔ Validate ➔ Policy Check ➔ Merge pipeline ensuring LLMs cannot freely mutate state.
 2. **Decision-Impact Unknowns:** Upgrade `UnknownItem` in `src/models.py` to prioritize research on thesis dealbreakers (`CRITICAL`) over minor trivia (`LOW`).
 3. **Adaptive Loop:** Orchestrator inspects prioritized UNKNOWNs → dispatches specialists → merges findings via governance layer → evaluates budget/evidence → repeat or render verdict.
-4. **Live End-to-End Test:** Run the complete loop against a real business idea.
+4. **State integration:** Wire the canonical `DiligenceState` through the research loop so specialist findings become structured state updates.
+5. **Live End-to-End Test:** Run the complete governed loop against a real business idea.
 
 ### Phase 3: Verdict & Polish
 
@@ -266,46 +281,49 @@ python -m src.main
 ### Prerequisites
 
 - Python 3.12+
-- An AWS account with **Amazon Bedrock** access enabled for `us.anthropic.claude-sonnet-4-20250514-v1:0` in `us-east-1`
+- Credentials for the model provider you choose:
+  - **Amazon Bedrock**, or
+  - **Gemini API**
 
 ### Setup
 
-**1. Configure AWS credentials:**
-
-```bash
-aws configure
-```
-
-It will prompt you for four values:
-
-```
-AWS Access Key ID:     <your-access-key>
-AWS Secret Access Key: <your-secret-key>
-Default region name:   us-east-1
-Default output format: json
-```
-
-> **Where to get these keys:** AWS Console → IAM → Users → your user → Security credentials → Create access key. Make sure your IAM user/role has the `bedrock:InvokeModel` permission.
-
-**2. Verify credentials work:**
-
-```bash
-aws sts get-caller-identity
-```
-
-You should see your account ID and ARN. If this fails, the agent won't be able to call Bedrock.
-
-**3. Install Python dependencies:**
+**1. Install Python dependencies:**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Run
+**2. Configure the model provider:**
+
+Create a `.env` file in the project root.
+
+**Gemini example:**
+
+```env
+DEFAULT_MODEL_PROVIDER=gemini
+DEFAULT_MODEL_ID=<your-gemini-model-id>
+GEMINI_API_KEY=<your-gemini-api-key>
+```
+
+**Amazon Bedrock example:**
+
+```env
+DEFAULT_MODEL_PROVIDER=bedrock
+DEFAULT_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+AWS_REGION=us-east-1
+```
+
+For Bedrock, configure AWS credentials using your normal AWS credential chain (for example `aws configure`) and make sure the IAM user/role has permission to invoke the selected Bedrock model.
+
+> `.env` is loaded automatically by the application for local development. Do not commit API keys or AWS secrets to source control.
+
+**3. Run:**
 
 ```bash
 python -m src.main "An app that helps small restaurants track food inventory to reduce waste"
 ```
+
+The same CLI entry point works with either configured provider. Provider/model selection is handled by `src/model_provider.py` rather than being hard-coded inside individual agents.
 
 ---
 
