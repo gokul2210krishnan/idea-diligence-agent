@@ -125,7 +125,7 @@ def create_orchestrator() -> Agent:
     Returns:
         A Strands Agent configured as the orchestrator.
     """
-    model = create_model(ModelRole.PROBLEM)
+    model = create_model(ModelRole.ORCHESTRATOR)
 
     orchestrator = Agent(
         model=model,

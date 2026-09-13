@@ -18,7 +18,7 @@ def create_economics_agent() -> Agent:
     Returns:
         A Strands Agent ready to research financial viability.
     """
-    model = create_model(ModelRole.PROBLEM)
+    model = create_model(ModelRole.ECONOMICS)
 
     agent = Agent(
         model=model,

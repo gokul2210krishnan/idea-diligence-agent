@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 from enum import Enum
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from strands.models.bedrock import BedrockModel
 from strands.models.gemini import GeminiModel
 
@@ -33,24 +37,8 @@ def _get_config(role: ModelRole) -> tuple[ModelProvider, str]:
     provider_name = (
         os.getenv(f"{role_name}_MODEL_PROVIDER")
         or os.getenv("DEFAULT_MODEL_PROVIDER")
+        or "gemini"
     )
-
-    model_id = (
-        os.getenv(f"{role_name}_MODEL_ID")
-        or os.getenv("DEFAULT_MODEL_ID")
-    )
-
-    if not provider_name:
-        raise ValueError(
-            f"No model provider configured for role '{role.value}'. "
-            f"Set {role_name}_MODEL_PROVIDER or DEFAULT_MODEL_PROVIDER."
-        )
-
-    if not model_id:
-        raise ValueError(
-            f"No model ID configured for role '{role.value}'. "
-            f"Set {role_name}_MODEL_ID or DEFAULT_MODEL_ID."
-        )
 
     try:
         provider = ModelProvider(provider_name.lower())
@@ -59,6 +47,18 @@ def _get_config(role: ModelRole) -> tuple[ModelProvider, str]:
             f"Unsupported model provider '{provider_name}' "
             f"for role '{role.value}'."
         ) from exc
+
+    default_model = (
+        "gemini-2.5-flash"
+        if provider == ModelProvider.GEMINI
+        else "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    )
+
+    model_id = (
+        os.getenv(f"{role_name}_MODEL_ID")
+        or os.getenv("DEFAULT_MODEL_ID")
+        or default_model
+    )
 
     return provider, model_id
 

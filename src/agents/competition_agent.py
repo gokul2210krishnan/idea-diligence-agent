@@ -18,7 +18,7 @@ def create_competition_agent() -> Agent:
     Returns:
         A Strands Agent ready to research competitors and market landscape.
     """
-    model = create_model(ModelRole.PROBLEM)
+    model = create_model(ModelRole.COMPETITION)
 
     agent = Agent(
         model=model,
