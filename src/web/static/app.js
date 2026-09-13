@@ -1,14 +1,21 @@
 const form = document.getElementById("idea-form");
 const ideaInput = document.getElementById("idea");
 const demoBtn = document.getElementById("run-demo");
+const liveBtn = document.getElementById("run-live");
 const progress = document.getElementById("progress");
 const errorBox = document.getElementById("error");
 const results = document.getElementById("results");
+const empty = document.getElementById("empty");
 
 document.querySelectorAll("[data-idea]").forEach((button) => {
   button.addEventListener("click", () => {
     ideaInput.value = button.dataset.idea;
+    ideaInput.focus();
   });
+});
+
+document.querySelectorAll("[data-tab]").forEach((button) => {
+  button.addEventListener("click", () => showTab(button.dataset.tab));
 });
 
 form.addEventListener("submit", async (event) => {
@@ -23,8 +30,23 @@ demoBtn.addEventListener("click", async () => {
   await investigate({ idea: ideaInput.value, demo: true, live: false });
 });
 
+function showTab(name) {
+  document.querySelectorAll("[data-tab]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.tab === name);
+  });
+  document.querySelectorAll("[data-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.panel !== name);
+  });
+}
+
+function setBusy(busy) {
+  liveBtn.disabled = busy;
+  demoBtn.disabled = busy;
+}
+
 function setProgress(active) {
   progress.classList.toggle("hidden", !active);
+  empty.classList.toggle("hidden", active || !results.classList.contains("hidden"));
   const steps = [...progress.querySelectorAll("[data-step]")];
   steps.forEach((step, index) => {
     step.classList.toggle("active", index === 0);
@@ -50,6 +72,7 @@ function clearProgress() {
 function showError(message) {
   errorBox.textContent = message;
   errorBox.classList.remove("hidden");
+  empty.classList.add("hidden");
 }
 
 function hideError() {
@@ -60,6 +83,8 @@ function hideError() {
 async function investigate({ idea, demo, live }) {
   hideError();
   results.classList.add("hidden");
+  empty.classList.add("hidden");
+  setBusy(true);
   setProgress(true);
 
   try {
@@ -78,10 +103,12 @@ async function investigate({ idea, demo, live }) {
     }
     render(payload);
   } catch (err) {
+    empty.classList.remove("hidden");
     showError(live
       ? `${err.message} Use “Load demo dossier” if you want to walk the UI without live model calls.`
       : err.message);
   } finally {
+    setBusy(false);
     clearProgress();
   }
 }
@@ -90,7 +117,7 @@ function bar(label, value) {
   const pct = Math.round((value || 0) * 100);
   return `
     <div class="bar">
-      <span><b>${label}</b><b>${pct}%</b></span>
+      <span><span>${label}</span><b>${pct}%</b></span>
       <div class="track"><div class="fill" style="width:${pct}%"></div></div>
     </div>`;
 }
@@ -119,7 +146,7 @@ function render(payload) {
   document.getElementById("verdict-label").textContent = `${verdict.method || "deterministic"} synthesis`;
   document.getElementById("verdict-summary").textContent = verdict.summary || "";
   document.getElementById("confidence-line").textContent =
-    `Confidence ${Math.round((verdict.confidence || 0) * 100)}% · ${payload.state.idea}`;
+    `${Math.round((verdict.confidence || 0) * 100)}% confidence · ${payload.state.idea}`;
 
   const scores = verdict.dimension_scores || {};
   document.getElementById("bars").innerHTML =
@@ -153,12 +180,14 @@ function render(payload) {
     <tr>
       <td><span class="badge ${item.evidence_type}">${item.evidence_type}</span></td>
       <td>${escapeHtml(item.category || "general")}</td>
-      <td>${escapeHtml(item.content)}${item.source ? `<div class="hint">${escapeHtml(item.source)}</div>` : ""}</td>
+      <td>${escapeHtml(item.content)}${item.source ? `<span class="source-link">${escapeHtml(item.source)}</span>` : ""}</td>
       <td>${Math.round((item.confidence || 0) * 100)}%</td>
     </tr>
   `).join("");
 
   document.getElementById("markdown").textContent = payload.report_markdown || "";
+  showTab("overview");
   results.classList.remove("hidden");
+  empty.classList.add("hidden");
   results.scrollIntoView({ behavior: "smooth", block: "start" });
 }

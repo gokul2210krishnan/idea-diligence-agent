@@ -3,128 +3,154 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Idea Diligence Agent</title>
+  <title>Idea Diligence</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="mark">ID</span>
-      <div>
-        <strong>Idea Diligence</strong>
-        <small>Governed multi-agent verdicts</small>
+  <header class="app-header">
+    <div class="app-header-inner">
+      <div class="logo">
+        <span class="logo-mark" aria-hidden="true"></span>
+        <span>Idea Diligence</span>
       </div>
+      <p class="header-note">Strands · Professional Agents</p>
     </div>
-    <nav>
-      <span class="chip">Safety Gate</span>
-      <span class="chip">Budget Governor</span>
-      <span class="chip">Verdict Engine</span>
-    </nav>
   </header>
 
-  <main>
-    <section class="hero">
-      <p class="eyebrow">AWS Strands · Professional Agents</p>
-      <h1>Submit an idea. Get a GO, MODIFY, or KILL verdict.</h1>
-      <p class="lede">
-        Three specialist agents research the problem, competition, and economics.
-        A deterministic engine classifies evidence and refuses to default to GO.
+  <div class="app">
+    <aside class="composer">
+      <h1>New investigation</h1>
+      <p class="sub">
+        Research the problem, competition, and economics. The verdict engine
+        classifies evidence and will not default to GO.
       </p>
 
       <form id="idea-form">
         <label for="idea">Product idea</label>
-        <textarea id="idea" name="idea" rows="4" required placeholder="An app that helps independent restaurants track food inventory to reduce waste"></textarea>
+        <textarea
+          id="idea"
+          name="idea"
+          rows="7"
+          required
+          placeholder="Describe the product, who it is for, and the problem it solves."
+        ></textarea>
+
+        <p class="field-label">Examples</p>
         <div class="examples">
           <button type="button" data-idea="An app that helps independent restaurants track food inventory to reduce waste">Restaurant inventory</button>
           <button type="button" data-idea="A marketplace that matches freelance chefs with last-minute private dinner hosts">Chef marketplace</button>
           <button type="button" data-idea="SaaS for independent gym owners to manage memberships, classes, and failed card retries">Gym ops SaaS</button>
         </div>
+
         <div class="actions">
-          <button type="submit" class="primary" id="run-live">Run live investigation</button>
-          <button type="button" class="ghost" id="run-demo">Load demo dossier</button>
+          <button type="submit" class="btn btn-primary" id="run-live">Run investigation</button>
+          <button type="button" class="btn btn-secondary" id="run-demo">Load demo dossier</button>
         </div>
-        <p class="hint">Demo uses a canned investigation (no model calls). Live mode runs the full governed pipeline and may take a few minutes.</p>
+        <p class="hint">
+          Demo is instant and offline. A live run uses the full pipeline and can take a few minutes.
+        </p>
       </form>
-    </section>
+    </aside>
 
-    <section id="progress" class="panel hidden">
-      <h2>Investigation in progress</h2>
-      <ol class="steps">
-        <li data-step="gate">Safety &amp; scope gate</li>
-        <li data-step="research">Adaptive specialist research</li>
-        <li data-step="verdict">Evidence classification &amp; verdict</li>
-      </ol>
-    </section>
-
-    <section id="error" class="panel error hidden"></section>
-
-    <section id="results" class="hidden">
-      <article class="verdict-card" id="verdict-card">
-        <div class="stamp" id="stamp">—</div>
-        <div>
-          <p class="eyebrow" id="verdict-label">Verdict</p>
-          <h2 id="verdict-summary"></h2>
-          <p id="confidence-line"></p>
-        </div>
-      </article>
-
-      <div class="grid">
-        <section class="panel">
-          <h3>Dimension scores</h3>
-          <div class="bars" id="bars"></div>
-        </section>
-        <section class="panel">
-          <h3>Governance</h3>
-          <dl id="governance" class="meta"></dl>
-        </section>
+    <main class="workspace">
+      <div id="empty" class="empty">
+        <p class="empty-title">No dossier yet</p>
+        <p class="empty-copy">
+          Submit an idea to run a live investigation, or load the restaurant
+          inventory sample to see a scored verdict.
+        </p>
       </div>
 
-      <section class="panel">
-        <h3>Key evidence</h3>
-        <ul id="key-evidence"></ul>
+      <section id="progress" class="card hidden" aria-live="polite">
+        <p class="card-title">Investigation running</p>
+        <ol class="stepper">
+          <li data-step="gate"><span>1</span> Safety and scope gate</li>
+          <li data-step="research"><span>2</span> Specialist research</li>
+          <li data-step="verdict"><span>3</span> Evidence and verdict</li>
+        </ol>
       </section>
 
-      <div class="grid">
-        <section class="panel">
-          <h3>Modifications / next steps</h3>
-          <ul id="actions-list"></ul>
-        </section>
-        <section class="panel">
-          <h3>Unknowns &amp; risks</h3>
-          <ul id="risks-list"></ul>
-        </section>
-      </div>
+      <section id="error" class="banner-error hidden" role="alert"></section>
 
-      <section class="panel">
-        <h3>Evidence ledger</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Category</th>
-                <th>Finding</th>
-                <th>Conf.</th>
-              </tr>
-            </thead>
-            <tbody id="ledger"></tbody>
-          </table>
+      <section id="results" class="hidden">
+        <article class="verdict-card" id="verdict-card">
+          <div class="verdict-head">
+            <div>
+              <p class="kicker" id="verdict-label">Verdict</p>
+              <p class="idea-line" id="confidence-line"></p>
+            </div>
+            <div class="stamp" id="stamp">—</div>
+          </div>
+          <p class="verdict-summary" id="verdict-summary"></p>
+        </article>
+
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab is-active" data-tab="overview" role="tab">Overview</button>
+          <button type="button" class="tab" data-tab="ledger" role="tab">Evidence</button>
+          <button type="button" class="tab" data-tab="report" role="tab">Report</button>
+        </div>
+
+        <div data-panel="overview">
+          <div class="split">
+            <section class="card">
+              <p class="card-title">Dimension scores</p>
+              <div id="bars"></div>
+            </section>
+            <section class="card">
+              <p class="card-title">Governance</p>
+              <dl id="governance" class="meta"></dl>
+            </section>
+          </div>
+
+          <section class="card">
+            <p class="card-title">Key evidence</p>
+            <ul id="key-evidence" class="plain-list"></ul>
+          </section>
+
+          <div class="split">
+            <section class="card">
+              <p class="card-title">Changes and next steps</p>
+              <ul id="actions-list" class="plain-list"></ul>
+            </section>
+            <section class="card">
+              <p class="card-title">Unknowns and risks</p>
+              <ul id="risks-list" class="plain-list"></ul>
+            </section>
+          </div>
+        </div>
+
+        <div data-panel="ledger" class="hidden">
+          <section class="card">
+            <p class="card-title">Evidence ledger</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Finding</th>
+                    <th>Conf.</th>
+                  </tr>
+                </thead>
+                <tbody id="ledger"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div data-panel="report" class="hidden">
+          <section class="card">
+            <p class="card-title">Full report</p>
+            <pre id="markdown"></pre>
+          </section>
         </div>
       </section>
+    </main>
+  </div>
 
-      <section class="panel">
-        <h3>Full report</h3>
-        <pre id="markdown"></pre>
-      </section>
-    </section>
-  </main>
-
-  <footer>
-    Built for the AWS Strands Agents SDK Hackathon · Evidence is classified · FACTs require sources
-  </footer>
   <script src="/static/app.js"></script>
 </body>
 </html>
