@@ -1,9 +1,11 @@
 from src.agents.orchestrator import (
     ingest_agent_output,
+    run_diligence,
     run_research_loop,
     select_next_specialist,
 )
 from src.governance.budget_governor import BudgetGovernor
+from src.governance.safety_gate import ScopeResult
 from src.models import DecisionImpact, DiligenceState, EvidenceType
 from src.session import ResearchSession
 
@@ -111,3 +113,15 @@ def test_transient_provider_errors_are_detected():
     assert _is_transient_provider_error(RuntimeError("503 Service Unavailable"))
     assert _is_transient_provider_error(RuntimeError("status: UNAVAILABLE"))
     assert not _is_transient_provider_error(RuntimeError("AccessDeniedException"))
+
+
+def test_run_diligence_emits_safety_progress():
+    events: list[dict] = []
+    from unittest.mock import patch
+
+    rejected = ScopeResult(is_valid=False, rejection_reason="too spicy", sanitized_idea="")
+    with patch("src.agents.orchestrator.evaluate_scope_and_safety", return_value=rejected):
+        run_diligence("An app that helps restaurants track food inventory waste", on_progress=events.append)
+    assert events
+    assert events[0]["phase"] == "safety"
+    assert any("Rejected" in event["message"] for event in events)

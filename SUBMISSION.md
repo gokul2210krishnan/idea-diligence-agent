@@ -115,3 +115,5 @@ python -m src.main --demo
 python -m src.main --web
 python -m pytest
 ```
+
+AWS deploy (ECR + ECS Fargate + public ALB): see [Deploying to AWS](README.md#deploying-to-aws-ecs-fargate) (`python scripts/deploy_ecs.py`).

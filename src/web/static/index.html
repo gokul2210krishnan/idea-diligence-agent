@@ -67,10 +67,12 @@
       <section id="progress" class="card hidden" aria-live="polite">
         <p class="card-title">Investigation running</p>
         <ol class="stepper">
-          <li data-step="gate"><span>1</span> Safety and scope gate</li>
+          <li data-step="safety"><span>1</span> Safety and scope gate</li>
           <li data-step="research"><span>2</span> Specialist research</li>
           <li data-step="verdict"><span>3</span> Evidence and verdict</li>
         </ol>
+        <p class="progress-status" id="progress-status">Starting…</p>
+        <ol id="activity-log" class="activity-log"></ol>
       </section>
 
       <section id="error" class="banner-error hidden" role="alert"></section>

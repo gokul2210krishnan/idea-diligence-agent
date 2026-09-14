@@ -29,6 +29,7 @@
   - [2. CLI Instant Demo (No API Key Required)](#2-cli-instant-demo-no-api-key-required)
   - [3. Live Governed Investigation](#3-live-governed-investigation)
   - [4. Machine-Readable JSON & Export](#4-machine-readable-json--export)
+- [Deploying to AWS (ECS Fargate)](#deploying-to-aws-ecs-fargate)
 - [CLI Reference](#cli-reference)
 - [Verdict Synthesis & Epistemic Hygiene](#verdict-synthesis--epistemic-hygiene)
 - [Testing & Quality Assurance](#testing--quality-assurance)
@@ -251,9 +252,14 @@ Navigate to **http://127.0.0.1:8000** in your browser. The web UI features:
 - **Full Dossier Markdown:** Complete, structured executive summary with risks and next steps.
 - **Concurrency Limiting:** Live investigations are protected by a semaphore (max 2 concurrent live runs, returning HTTP 429 when busy) to ensure predictable execution.
 
-To bind to a custom host or port:
+To bind on all interfaces (needed in Docker / ECS):
+
 ```bash
-python -m src.main --web --host 0.0.0.0 --port 8080
+# Linux / macOS
+HOST=0.0.0.0 python -m src.main --web --port 8080
+
+# Windows PowerShell
+$env:HOST="0.0.0.0"; python -m src.main --web --port 8080
 ```
 
 ### 2. CLI Instant Demo (No API Key Required)
@@ -299,26 +305,99 @@ python -m src.main --demo --output report.json
 
 ---
 
+## Deploying to AWS (ECS Fargate)
+
+The hackathon demo is a public HTTP URL in **us-east-1**: a Docker image on **Amazon ECR**, one **ECS Fargate** task, and an internet-facing **Application Load Balancer**. Live investigations run as in-memory jobs and the browser polls for the result, so the ALB does not need a 6-minute idle timeout.
+
+**Current demo:** http://idea-diligence-agent-alb-369310072.us-east-1.elb.amazonaws.com
+
+- **Load demo dossier** — instant, no Gemini calls
+- **Run investigation** — live Gemini research (3–6 minutes). Requires quota at [AI Studio spend](https://aistudio.google.com/spend)
+
+### What gets created
+
+| Resource | Name |
+|---|---|
+| Region | `us-east-1` |
+| ECR repository | `idea-diligence-agent` |
+| ECS cluster / service / task family | `idea-diligence-agent` |
+| Task size | 1 vCPU / 2 GB |
+| ALB / target group | `idea-diligence-alb` / `idea-diligence-tg` |
+| Security groups | `idea-diligence-alb` (inbound 80 from the internet), `idea-diligence-tasks` (inbound 8000 from the ALB only) |
+| CloudWatch logs | `/ecs/idea-diligence-agent` |
+| Health check | `GET /api/health` → 200 |
+| Execution role | existing `ecsTaskExecutionRole` |
+
+The container listens on `0.0.0.0:8000` (`HOST` / `Dockerfile`). `.env` is **not** copied into the image. `scripts/deploy_ecs.py` reads `GEMINI_API_KEY` from local `.env` and sets it as a task environment variable (visible in the ECS console; not committed to git).
+
+### Prerequisites
+
+- Docker Desktop (buildx, `linux/amd64`)
+- AWS CLI configured for an account that can use ECR, ECS, EC2, ELB, CloudWatch Logs, and IAM `GetRole`
+- Default VPC with at least two public subnets
+- IAM role `ecsTaskExecutionRole` (AmazonECSTaskExecutionRolePolicy)
+- `.env` with a real `GEMINI_API_KEY` (see `.env.example`)
+- Python deps already installed (`boto3` comes in via Strands)
+
+### Deploy or update
+
+From the repo root (idempotent: first run creates, later runs rebuild/push and force a new deployment):
+
+```bash
+python scripts/deploy_ecs.py
+```
+
+The script:
+
+1. Ensures the ECR repo exists and logs Docker into it
+2. Builds `linux/amd64` from `Dockerfile` and pushes `:latest`
+3. Ensures the log group, security groups, ALB, target group, listener, and cluster
+4. Registers a new task definition (`gemini` / `gemini-3.6-flash` + `GEMINI_API_KEY`)
+5. Creates or updates the Fargate service (`assignPublicIp=ENABLED` so the task can reach Gemini and DuckDuckGo)
+6. Waits until the target is **healthy** and prints `Public demo URL: http://…elb.amazonaws.com`
+
+A copy of that URL is written to `.deploy-url` (gitignored).
+
+### Verify
+
+```bash
+curl http://<alb-dns>/api/health
+curl http://<alb-dns>/api/demo
+```
+
+Open the ALB URL in a browser. Logs: CloudWatch log group `/ecs/idea-diligence-agent`.
+
+### Tear down (stops ALB/Fargate charges)
+
+```bash
+aws ecs update-service --region us-east-1 --cluster idea-diligence-agent --service idea-diligence-agent --desired-count 0
+aws ecs delete-service --region us-east-1 --cluster idea-diligence-agent --service idea-diligence-agent --force
+aws elbv2 delete-load-balancer --region us-east-1 --load-balancer-arn $(aws elbv2 describe-load-balancers --region us-east-1 --names idea-diligence-alb --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+```
+
+Then delete the target group `idea-diligence-tg`, security groups, cluster, log group, and ECR repo if you no longer need them.
+
+---
+
 ## CLI Reference
 
 ```text
 usage: python -m src.main [-h] [--web] [--demo] [--json] [--output OUTPUT]
-                          [--host HOST] [--port PORT] [idea]
-
-Autonomous Idea Due Diligence Agent
+                          [--port PORT] [idea ...]
 
 positional arguments:
-  idea             Product or startup idea to investigate (optional in interactive or demo mode)
+  idea             Product or startup idea to investigate
 
 options:
   -h, --help       Show help message and exit
-  --web            Launch the interactive browser workspace
-  --demo           Run with canned restaurant-inventory diligence data (no LLM calls)
-  --json           Output result strictly as structured JSON
-  --output OUTPUT  Save generated dossier to specified file (.md or .json)
-  --host HOST      Host to bind web server (default: 127.0.0.1)
-  --port PORT      Port to bind web server (default: 8000)
+  --web            Launch the local demo web UI
+  --demo           Canned restaurant-inventory investigation (no LLM calls)
+  --json           Print JSON instead of the formatted report
+  --output OUTPUT  Write the report to this file (markdown or JSON)
+  --port PORT      Port for --web (default: 8000)
 ```
+
+Web bind address is `HOST` (default `127.0.0.1`; set `0.0.0.0` in containers).
 
 ---
 
@@ -377,6 +456,8 @@ idea-diligence-agent/
 ├── LICENSE                       # Apache 2.0 Open Source License
 ├── README.md                     # This project overview & documentation
 ├── SUBMISSION.md                 # Devpost hackathon submission narrative
+├── Dockerfile                    # Production image: FastAPI on 0.0.0.0:8000
+├── .dockerignore                 # Keeps .env and tests out of the image
 ├── pytest.ini                    # Pytest configuration
 ├── requirements.txt              # Production and test Python dependencies
 ├── brainstorming/                # Architecture diagrams, specifications, and notes
@@ -387,6 +468,7 @@ idea-diligence-agent/
 ├── scripts/
 │   ├── setup.ps1                 # Automated Windows PowerShell onboarding script
 │   ├── setup.sh                  # Automated Linux/macOS onboarding script
+│   ├── deploy_ecs.py             # Idempotent ECR + ECS Fargate + ALB deploy
 │   └── build_security_doc.py     # Governance doc styling generator
 ├── src/
 │   ├── __init__.py

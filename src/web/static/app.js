@@ -44,29 +44,61 @@ function setBusy(busy) {
   demoBtn.disabled = busy;
 }
 
-function setProgress(active, { slow } = {}) {
+function setProgress(active) {
   progress.classList.toggle("hidden", !active);
   empty.classList.toggle("hidden", active || !results.classList.contains("hidden"));
-  const steps = [...progress.querySelectorAll("[data-step]")];
-  steps.forEach((step, index) => {
-    step.classList.toggle("active", index === 0);
-    step.classList.remove("done");
-  });
   if (!active) return;
-  let i = 0;
-  window._progressTimer = setInterval(() => {
-    if (i < steps.length) {
-      steps[i].classList.add("done");
-      steps[i].classList.remove("active");
-      if (steps[i + 1]) steps[i + 1].classList.add("active");
-      i += 1;
-    }
-  }, slow ? 90000 : 900);
+  const log = document.getElementById("activity-log");
+  if (log) log.innerHTML = "";
+  const status = document.getElementById("progress-status");
+  if (status) status.textContent = "Starting…";
+  renderStepper("safety");
 }
 
 function clearProgress() {
-  if (window._progressTimer) clearInterval(window._progressTimer);
   progress.classList.add("hidden");
+}
+
+function renderStepper(phase) {
+  const order = ["safety", "research", "verdict"];
+  const current = phase === "done" ? "verdict" : phase;
+  const idx = Math.max(0, order.indexOf(current));
+  [...progress.querySelectorAll("[data-step]")].forEach((step, index) => {
+    step.classList.toggle("done", index < idx || phase === "done");
+    step.classList.toggle("active", phase !== "done" && index === idx);
+  });
+}
+
+function renderActivity(job) {
+  renderStepper(job.phase || "safety");
+  const events = job.events || [];
+  const status = document.getElementById("progress-status");
+  const latest = events[events.length - 1];
+  if (status) {
+    status.textContent = latest ? latest.message : "Waiting for the first pipeline event…";
+  }
+  const log = document.getElementById("activity-log");
+  if (!log) return;
+  log.innerHTML = events.map((event) => {
+    const when = (event.at || "").slice(11, 19);
+    const count = event.evidence_count == null ? "" : `${event.evidence_count} evidence`;
+    return `<li class="${event.level || "info"}"><span class="when">${escapeHtml(when)}</span><span class="msg">${escapeHtml(event.message || "")}</span><span class="meta">${escapeHtml(count)}</span></li>`;
+  }).join("");
+  log.scrollTop = log.scrollHeight;
+}
+
+async function pollJob(jobId) {
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    const job = await readJson(await fetch(`/api/diligence/${jobId}`));
+    renderActivity(job);
+    if (job.status === "done") return job.result;
+    if (job.status === "error") {
+      throw new Error(job.error || "Investigation failed.");
+    }
+    await sleep(1000);
+  }
+  throw new Error("Investigation timed out after 10 minutes.");
 }
 
 function showError(message) {
@@ -101,25 +133,12 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function pollJob(jobId) {
-  const deadline = Date.now() + 10 * 60 * 1000;
-  while (Date.now() < deadline) {
-    const job = await readJson(await fetch(`/api/diligence/${jobId}`));
-    if (job.status === "done") return job.result;
-    if (job.status === "error") {
-      throw new Error(job.error || "Investigation failed.");
-    }
-    await sleep(2000);
-  }
-  throw new Error("Investigation timed out after 10 minutes.");
-}
-
 async function investigate({ idea, demo, live }) {
   hideError();
   results.classList.add("hidden");
   empty.classList.add("hidden");
   setBusy(true);
-  setProgress(true, { slow: live });
+  setProgress(true);
 
   try {
     const response = await fetch(demo ? "/api/demo" : "/api/diligence", {
@@ -129,6 +148,7 @@ async function investigate({ idea, demo, live }) {
     });
     let payload = await readJson(response);
     if (payload.job_id && payload.status && payload.status !== "done") {
+      renderActivity(payload);
       payload = await pollJob(payload.job_id);
     } else if (payload.result) {
       payload = payload.result;

@@ -30,6 +30,7 @@ from src.governance.safety_gate import evaluate_scope_and_safety, ScopeResult
 from src.governance.state_updater import FindingProposal, validate_and_merge
 from src.model_provider import ModelRole, describe_model
 from src.models import DecisionImpact, DiligenceState, UnknownStatus
+from src.progress import emit, specialist_label
 from src.report import render_markdown_report
 from src.session import ResearchSession
 from src.tools import create_research_tools
@@ -145,6 +146,7 @@ def dispatch_specialist(session: ResearchSession, agent_name: str) -> str:
         state=session.state,
         governor=session.governor,
         agent_name=agent_name,
+        on_progress=session.on_progress,
     )
     factories = {
         "problem_agent": create_problem_agent,
@@ -162,6 +164,12 @@ def dispatch_specialist(session: ResearchSession, agent_name: str) -> str:
             result = str(agent(_prompt_for(agent_name, session)))
             ingest_agent_output(session.state, result, agent_name)
             session.state.log_action(agent_name, f"Dispatched {agent_name}", result[:200])
+            session.emit(
+                "research",
+                f"{specialist_label(agent_name)} finished",
+                level="ok",
+                agent=agent_name,
+            )
             return result
         except Exception as exc:
             last_error = exc
@@ -169,9 +177,12 @@ def dispatch_specialist(session: ResearchSession, agent_name: str) -> str:
             if not transient or attempt == _DISPATCH_ATTEMPTS:
                 break
             wait = 2 * attempt
-            print(
-                f"  [RETRY] {agent_name} hit {type(exc).__name__} "
-                f"(attempt {attempt}/{_DISPATCH_ATTEMPTS}); waiting {wait}s"
+            session.emit(
+                "research",
+                f"{specialist_label(agent_name)} hit {type(exc).__name__} "
+                f"(attempt {attempt}/{_DISPATCH_ATTEMPTS}); retrying in {wait}s",
+                level="warn",
+                agent=agent_name,
             )
             time.sleep(wait)
 
@@ -180,7 +191,12 @@ def dispatch_specialist(session: ResearchSession, agent_name: str) -> str:
         f"{agent_name} unavailable ({type(last_error).__name__}). "
         "Specialist skipped; investigation continues with remaining evidence."
     )
-    print(f"  [SKIP] {note}")
+    session.emit(
+        "research",
+        f"{specialist_label(agent_name)} unavailable ({type(last_error).__name__}). Skipping.",
+        level="warn",
+        agent=agent_name,
+    )
     session.state.log_action(agent_name, f"Failed {agent_name}", str(last_error)[:200])
     return note
 
@@ -198,14 +214,22 @@ def run_research_loop(
         if agent_name is None:
             break
         if not session.governor.begin_iteration(agent_name):
-            print(f"  [BUDGET] Dispatch denied: {session.governor.exhaustion_reason}")
+            session.emit(
+                "research",
+                f"Budget stop: {session.governor.exhaustion_reason}",
+                level="warn",
+            )
             break
 
         if agent_name in session.dispatched:
             session.follow_ups += 1
         session.dispatched.append(agent_name)
 
-        print(f"  [LOOP] Dispatching {agent_name} ({session.governor.remaining_summary()})")
+        session.emit(
+            "research",
+            f"Dispatching {specialist_label(agent_name)} ({session.governor.remaining_summary()})",
+            agent=agent_name,
+        )
         try:
             notes.append(dispatch(session, agent_name))
         except Exception as exc:
@@ -213,7 +237,7 @@ def run_research_loop(
                 f"{agent_name} failed ({type(exc).__name__}). "
                 "Specialist skipped; investigation continues with remaining evidence."
             )
-            print(f"  [SKIP] {note}")
+            session.emit("research", note, level="warn", agent=agent_name)
             session.state.log_action(agent_name, f"Failed {agent_name}", str(exc)[:200])
             notes.append(note)
 
@@ -238,11 +262,14 @@ def _seed_unknowns(state: DiligenceState) -> None:
     )
 
 
-def run_diligence(idea: str) -> tuple[str, DiligenceState, ScopeResult, dict]:
+def run_diligence(
+    idea: str,
+    on_progress: Callable[[dict], None] | None = None,
+) -> tuple[str, DiligenceState, ScopeResult, dict]:
     """Run a full due diligence investigation on a product idea.
 
     Each call creates its own ResearchSession. Concurrent calls do not share
-    state, agents, or budget counters.
+    state, agents, or budget counters. ``on_progress`` receives UI-safe event dicts.
     """
     print(f"\n{'='*60}")
     print(f"  IDEA DILIGENCE AGENT — Governed Pipeline + Verdict Engine")
@@ -251,17 +278,20 @@ def run_diligence(idea: str) -> tuple[str, DiligenceState, ScopeResult, dict]:
     print(f"  Model: {describe_model(ModelRole.SAFETY_GATE)}")
     print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    print(f"\n{'-'*60}")
-    print(f"  [SAFETY GATE] Pre-screening idea...")
-    print(f"{'-'*60}")
-
+    emit(
+        on_progress,
+        phase="safety",
+        message=f"Safety gate screening · {describe_model(ModelRole.SAFETY_GATE)}",
+    )
     scope_result = evaluate_scope_and_safety(idea)
 
     if not scope_result.is_valid:
-        print(f"\n  [REJECTED] {scope_result.rejection_reason}")
-        if scope_result.risk_flags:
-            for flag in scope_result.risk_flags:
-                print(f"     [!] {flag}")
+        emit(
+            on_progress,
+            phase="safety",
+            message=f"Rejected: {scope_result.rejection_reason}",
+            level="error",
+        )
         empty_state = DiligenceState(idea=idea)
         return (
             f"REJECTED by Safety Gate: {scope_result.rejection_reason}",
@@ -270,10 +300,7 @@ def run_diligence(idea: str) -> tuple[str, DiligenceState, ScopeResult, dict]:
             {},
         )
 
-    print(f"  [ACCEPTED] Idea is a valid product concept")
-    if scope_result.risk_flags:
-        for flag in scope_result.risk_flags:
-            print(f"     [!] {flag}")
+    emit(on_progress, phase="safety", message="Safety gate passed", level="ok")
 
     governor = BudgetGovernor(
         max_iterations=5,
@@ -285,22 +312,32 @@ def run_diligence(idea: str) -> tuple[str, DiligenceState, ScopeResult, dict]:
 
     state = DiligenceState(idea=scope_result.sanitized_idea)
     _seed_unknowns(state)
-    session = ResearchSession(state=state, governor=governor)
+    session = ResearchSession(state=state, governor=governor, on_progress=on_progress)
 
-    print(f"\n{'-'*60}")
-    print(f"  [RESEARCH LOOP] Python-owned adaptive investigation...")
-    print(f"  Budget: {governor.remaining_summary()}")
-    print(f"{'-'*60}\n")
+    emit(
+        on_progress,
+        phase="research",
+        message=f"Research loop starting · {governor.remaining_summary()}",
+    )
 
     research_notes = run_research_loop(session)
 
-    print(f"\n{'-'*60}")
-    print(f"  [VERDICT ENGINE] Classifying evidence and scoring the idea...")
-    print(f"{'-'*60}")
+    emit(
+        on_progress,
+        phase="verdict",
+        message="Verdict engine classifying evidence and scoring the idea",
+        evidence_count=len(state.evidence),
+    )
     report = synthesize_verdict(state, orchestrator_text=research_notes, use_llm=True)
-    print(
-        f"  Decision: {report.decision.value}  "
-        f"({report.confidence:.0%} confidence, {report.method})"
+    emit(
+        on_progress,
+        phase="done",
+        message=(
+            f"Verdict: {report.decision.value} "
+            f"({report.confidence:.0%} confidence, {report.method})"
+        ),
+        level="ok",
+        evidence_count=len(state.evidence),
     )
 
     budget_status = governor.get_status()

@@ -13,10 +13,13 @@ import json
 from strands import tool
 from strands_tools import http_request
 
+from typing import Any, Callable, Optional
+
 from src.governance.budget_governor import BudgetGovernor
 from src.governance.data_sanitizer import sanitize_web_content
 from src.governance.state_updater import FindingProposal, validate_and_merge
 from src.models import DiligenceState
+from src.progress import emit, specialist_label
 
 
 def _raw_http_body(url: str) -> str:
@@ -122,18 +125,34 @@ def create_research_tools(
     state: DiligenceState,
     governor: BudgetGovernor,
     agent_name: str,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
 ):
     """Build search/read/save tools bound to one investigation and one specialist."""
+    label = specialist_label(agent_name)
+
+    def _note(message: str, *, tool: str, level: str = "info") -> None:
+        emit(
+            on_progress,
+            phase="research",
+            message=message,
+            level=level,
+            agent=agent_name,
+            tool=tool,
+            evidence_count=len(state.evidence),
+        )
 
     @tool
     def search_web(query: str) -> str:
         """Search the web for competitors, pricing, market data, or demand signals."""
         allowed, reason = governor.try_consume_tool(agent_name)
         if not allowed:
+            _note(f"{label} hit the tool budget", tool="search_web", level="warn")
             return (
                 f"[BUDGET STOP] {reason} "
                 "Do not call more tools. Summarize from evidence already gathered."
             )
+        clipped = query.strip().replace("\n", " ")[:120]
+        _note(f"{label} searching: {clipped}", tool="search_web")
         return _search_web_impl(query)
 
     @tool
@@ -141,10 +160,12 @@ def create_research_tools(
         """Read a webpage and return sanitized text."""
         allowed, reason = governor.try_consume_tool(agent_name)
         if not allowed:
+            _note(f"{label} hit the tool budget", tool="read_webpage", level="warn")
             return (
                 f"[BUDGET STOP] {reason} "
                 "Do not call more tools. Summarize from evidence already gathered."
             )
+        _note(f"{label} reading {url[:120]}", tool="read_webpage")
         return _read_webpage_impl(url)
 
     @tool
@@ -165,6 +186,19 @@ def create_research_tools(
             proposed_by=agent_name,
         )
         result = validate_and_merge(proposal, state)
+        snippet = content.strip().replace("\n", " ")[:140]
+        if result.accepted:
+            _note(
+                f"{label} saved {evidence_type} ({category}): {snippet}",
+                tool="save_finding",
+                level="ok",
+            )
+        else:
+            _note(
+                f"{label} finding rejected: {result.reason}",
+                tool="save_finding",
+                level="warn",
+            )
         payload = {
             "accepted": result.accepted,
             "reason": result.reason,

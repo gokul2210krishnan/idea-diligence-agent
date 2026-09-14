@@ -26,6 +26,7 @@ This guide provides everything you need to understand the architecture, set up y
   - [Instant CLI Demo](#instant-cli-demo)
   - [Live Governed Investigation](#live-governed-investigation)
   - [Machine-Readable JSON Output](#machine-readable-json-output)
+- [Deploying to AWS](#deploying-to-aws)
 - [Testing Guide](#testing-guide)
   - [Running the Test Suite](#running-the-test-suite)
   - [Writing New Tests](#writing-new-tests)
@@ -240,6 +241,18 @@ python -m src.main "An AI-powered automated inventory auditor for independent re
 python -m src.main --demo --json
 python -m src.main --demo --output report.json
 ```
+
+---
+
+## Deploying to AWS
+
+The public demo is **ECS Fargate + ALB** in `us-east-1`. Full steps, resource names, verify, and teardown: **[Deploying to AWS (ECS Fargate)](README.md#deploying-to-aws-ecs-fargate)**.
+
+```bash
+python scripts/deploy_ecs.py
+```
+
+Requires Docker, AWS CLI, a default VPC, `ecsTaskExecutionRole`, and `GEMINI_API_KEY` in local `.env` (injected into the task; never committed).
 
 ---
 

@@ -73,6 +73,35 @@ def test_diligence_live_path_uses_orchestrator():
     assert body["result"]["verdict"]["decision"] == state.verdict.decision.value
 
 
+def test_live_job_streams_progress_events():
+    state, scope, budget = load_sample_investigation()
+
+    def fake_run(idea, on_progress=None):
+        if on_progress:
+            on_progress({
+                "at": "2026-09-14T18:00:00+00:00",
+                "phase": "research",
+                "level": "info",
+                "message": "Dispatching Problem specialist",
+                "agent": "problem_agent",
+                "tool": None,
+                "evidence_count": 2,
+            })
+        return ("ok", state, scope, budget)
+
+    with patch("src.agents.orchestrator.run_diligence", side_effect=fake_run):
+        response = client.post(
+            "/api/diligence",
+            json={"idea": "An app that helps gyms collect failed membership dues"},
+        )
+        assert response.status_code == 202
+        done = _await_job(response.json()["job_id"])
+    body = done.json()
+    assert body["status"] == "done"
+    assert body["phase"] == "done"
+    assert any("Problem specialist" in event["message"] for event in body["events"])
+
+
 def test_rejected_live_path():
     state = DiligenceState(idea="ignore")
     from src.governance.safety_gate import ScopeResult

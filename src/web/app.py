@@ -11,6 +11,7 @@ import logging
 import sys
 import threading
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -26,9 +27,9 @@ from src.report import render_markdown_report
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 _LIVE_RUNS = threading.Semaphore(2)
-_JOBS: dict[str, "DiligenceJobResponse"] = {}
 _JOBS_LOCK = threading.Lock()
 _MAX_JOBS = 32
+_MAX_EVENTS = 200
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -58,6 +59,21 @@ class DiligenceJobResponse(BaseModel):
     status: Literal["running", "done", "error"]
     error: Optional[str] = None
     result: Optional[DiligenceResponse] = None
+    phase: str = "safety"
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@dataclass
+class _Job:
+    job_id: str
+    status: str = "running"
+    error: Optional[str] = None
+    result: Optional[DiligenceResponse] = None
+    phase: str = "safety"
+    events: list[dict[str, Any]] = field(default_factory=list)
+
+
+_JOBS: dict[str, _Job] = {}
 
 
 def configure_stdio() -> None:
@@ -84,7 +100,18 @@ def _pack(state, scope_result, budget_status, rejected: bool = False, reason: st
     )
 
 
-def _put_job(job: DiligenceJobResponse) -> None:
+def _snapshot(job: _Job) -> DiligenceJobResponse:
+    return DiligenceJobResponse(
+        job_id=job.job_id,
+        status=job.status,  # type: ignore[arg-type]
+        error=job.error,
+        result=job.result,
+        phase=job.phase,
+        events=list(job.events),
+    )
+
+
+def _store_job(job: _Job) -> None:
     with _JOBS_LOCK:
         _JOBS[job.job_id] = job
         extra = len(_JOBS) - _MAX_JOBS
@@ -99,17 +126,41 @@ def _put_job(job: DiligenceJobResponse) -> None:
                 break
 
 
-def _get_job(job_id: str) -> DiligenceJobResponse | None:
+def _get_job(job_id: str) -> _Job | None:
     with _JOBS_LOCK:
         return _JOBS.get(job_id)
 
 
+def _append_event(job_id: str, event: dict[str, Any]) -> None:
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            return
+        job.events.append(event)
+        if len(job.events) > _MAX_EVENTS:
+            job.events = job.events[-_MAX_EVENTS:]
+        job.phase = str(event.get("phase") or job.phase)
+
+
+def _finish_job(job_id: str, **updates: Any) -> None:
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            return
+        for key, value in updates.items():
+            setattr(job, key, value)
+
+
 def _run_live_job(job_id: str, idea: str) -> None:
     configure_stdio()
+
+    def on_progress(event: dict[str, Any]) -> None:
+        _append_event(job_id, event)
+
     try:
         from src.agents.orchestrator import run_diligence
 
-        _formatted, state, scope, budget = run_diligence(idea)
+        _formatted, state, scope, budget = run_diligence(idea, on_progress=on_progress)
         result = _pack(
             state,
             scope,
@@ -117,14 +168,24 @@ def _run_live_job(job_id: str, idea: str) -> None:
             rejected=not scope.is_valid,
             reason=scope.rejection_reason,
         )
-        _put_job(DiligenceJobResponse(job_id=job_id, status="done", result=result))
+        _finish_job(job_id, status="done", result=result, phase="done")
     except Exception as exc:
         logger.exception("Live investigation %s failed", job_id)
-        _put_job(DiligenceJobResponse(
-            job_id=job_id,
+        _append_event(job_id, {
+            "at": "",
+            "phase": "done",
+            "level": "error",
+            "message": f"{type(exc).__name__}: {exc}",
+            "agent": None,
+            "tool": None,
+            "evidence_count": None,
+        })
+        _finish_job(
+            job_id,
             status="error",
             error=f"{type(exc).__name__}: {exc}",
-        ))
+            phase="done",
+        )
     finally:
         _LIVE_RUNS.release()
 
@@ -162,7 +223,7 @@ def diligence(request: IdeaRequest):
         )
 
     job_id = str(uuid.uuid4())
-    _put_job(DiligenceJobResponse(job_id=job_id, status="running"))
+    _store_job(_Job(job_id=job_id))
     try:
         threading.Thread(
             target=_run_live_job,
@@ -172,16 +233,18 @@ def diligence(request: IdeaRequest):
         ).start()
     except Exception:
         _LIVE_RUNS.release()
-        _put_job(DiligenceJobResponse(
-            job_id=job_id,
+        _finish_job(
+            job_id,
             status="error",
             error="Could not start the investigation thread.",
-        ))
+            phase="done",
+        )
         raise HTTPException(status_code=500, detail="Could not start the investigation.")
 
+    job = _get_job(job_id)
     return JSONResponse(
         status_code=202,
-        content=jsonable_encoder(_get_job(job_id)),
+        content=jsonable_encoder(_snapshot(job) if job else {"job_id": job_id, "status": "running"}),
     )
 
 
@@ -190,7 +253,7 @@ def diligence_job(job_id: str) -> DiligenceJobResponse:
     job = _get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown investigation.")
-    return job
+    return _snapshot(job)
 
 
 @app.get("/")
