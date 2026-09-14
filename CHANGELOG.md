@@ -121,21 +121,6 @@ All notable progress on the hackathon build, tracked by phase.
 
 ---
 
-## Control-plane fix (Gokul review) — ✅ COMPLETE (Sep 14, 2026)
-
-Python now owns the research loop and budget. Governance fails closed.
-
-### Changed
-- Removed process-global `_session_state` / `_session_governor` and shared agent singletons
-- `ResearchSession` isolates each investigation
-- `run_research_loop` dispatches specialists only after `BudgetGovernor.begin_iteration`
-- Session-bound tools refuse search/read once `try_consume_tool` denies
-- Safety gate rejects when the semantic classifier errors (no fail-open)
-- State updater rejects unknown agents
-- Live web investigations are capped (HTTP 429) and return HTTP 500 on failure
-
----
-
 ## Open Source Contributor & Documentation Overhaul — ✅ COMPLETE (Sep 13, 2026)
 
 **Goal:** Provide comprehensive, accessible, and crystal-clear documentation so any open-source contributor can understand, run, test, and contribute to the project.
@@ -156,7 +141,38 @@ Python now owns the research loop and budget. Governance fails closed.
 - `.github/PULL_REQUEST_TEMPLATE.md` — Structured PR template for contributor submissions.
 
 ### Verified
-- All 42 automated tests passing via `python -m pytest` ✅
+- All automated tests passing via `python -m pytest` ✅
 - Interactive web workspace verified via `python -m src.main --web` ✅
 - Instant CLI demo verified via `python -m src.main --demo` ✅
+
+---
+
+## Control-plane fix (Gokul review) — ✅ COMPLETE (Sep 14, 2026)
+
+Python now owns the research loop and budget. Governance fails closed.
+
+### Changed
+- Removed process-global `_session_state` / `_session_governor` and shared agent singletons
+- `ResearchSession` isolates each investigation
+- `run_research_loop` dispatches specialists only after `BudgetGovernor.begin_iteration`
+- Session-bound tools refuse search/read once `try_consume_tool` denies
+- Safety gate rejects when the semantic classifier errors (fails closed)
+- State updater rejects unknown agents (fails closed)
+- Live web investigations are capped (HTTP 429) and return HTTP 500 on failure
+- Added `test/test_loop.py` covering dispatch order, budget stops, session isolation, and tool acknowledgement ingestion
+
+---
+
+## Model Provider & Runtime Resilience — ✅ COMPLETE (Sep 14, 2026)
+
+Keep live investigations working reliably through current model IDs and third-party provider outages.
+
+### Changed
+- Upgraded default Google Gemini model from `gemini-2.5-flash` to `gemini-3.6-flash`
+- Added provider resilience with 3-attempt exponential backoff for transient rate limits and outages (503, 429, UNAVAILABLE)
+- Added graceful specialist skip handling: if an external model provider fails, the pipeline logs the failure, skips that specialist, and continues with remaining gathered evidence
+- Enforced explicit `GEMINI_API_KEY` validation on initialization and enabled dotenv overriding
+- Expanded test suite to **54 automated tests** with 100% offline pass rate
+- Updated documentation and setup scripts (`README.md`, `CONTRIBUTING.md`, `setup.ps1`, `setup.sh`) to reflect 54 tests and architecture enhancements
+
 

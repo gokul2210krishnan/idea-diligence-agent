@@ -62,7 +62,7 @@ Scroll key evidence, governance chips, and the markdown report.
 
 Open three files, no scrolling tours:
 
-- `src/agents/orchestrator.py` — specialists as tools, then `synthesize_verdict`.
+- `src/agents/orchestrator.py` — Python-owned research loop with session-bound tools, then `synthesize_verdict`.
 - `src/verdict.py` — deterministic GO/MODIFY/KILL rules.
 - `src/governance/state_updater.py` — propose / validate / merge.
 

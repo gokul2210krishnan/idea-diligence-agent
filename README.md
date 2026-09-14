@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests: 52 Passed](https://img.shields.io/badge/tests-52%20passed-brightgreen.svg)](test/)
+[![Tests: 54 Passed](https://img.shields.io/badge/tests-54%20passed-brightgreen.svg)](test/)
 [![Framework: AWS Strands Agents](https://img.shields.io/badge/framework-Strands%20Agents%20SDK-orange.svg)](https://strandsagents.com/)
 
 > **An autonomous, multi-agent due diligence system that evaluates raw product ideas, conducts deep background research on problems, competitors, and unit economics, challenges founder assumptions, and delivers an evidence-backed GO, MODIFY, or KILL verdict — with zero babysitting.**
@@ -82,20 +82,20 @@ flowchart TD
     SG -->|Accept| State[(Canonical DiligenceState)]
     
     State --> BG[Boundary 2: Budget Governor]
-    BG --> Orch[Orchestrator Agent]
+    BG --> Loop[Python Research Loop & Session]
     
-    Orch --> Tri[Boundary 5: Decision-Impact Unknown Triage]
-    Tri -->|Critical Unknowns| Dispatch{Dispatch Specialist}
+    Loop --> Tri[Boundary 5: Decision-Impact Unknown Triage]
+    Tri -->|Select Next Unknown| Dispatch{Authorize & Dispatch Specialist}
     
     Dispatch -->|Problem Research| PA[Problem Specialist Agent]
     Dispatch -->|Competitor Research| CA[Competition Specialist Agent]
     Dispatch -->|Unit Economics| EA[Economics Specialist Agent]
     
-    PA & CA & EA --> Tools[Research Tools: search_web & read_webpage]
+    PA & CA & EA --> Tools[Session-Bound Tools: search_web, read_webpage, save_finding]
+    Tools -.->|try_consume_tool| BG
     Tools --> Sanitizer[Boundary 3: Untrusted Data Quarantine]
-    Sanitizer --> Proposals[Candidate Finding Proposals]
+    Tools --> Updater[Boundary 4: State Authority Layer]
     
-    Proposals --> Updater[Boundary 4: State Authority Layer]
     Updater -->|Validate Schema, Domain & Provenance| State
     
     State --> Evaluate{Budget or Evidence Exhausted?}
@@ -115,10 +115,10 @@ The system is engineered around five strict architectural invariants implemented
 
 | Boundary | Module | Responsibility & Invariant |
 |---|---|---|
-| **1. Safety & Scope Gate** | [`src/governance/safety_gate.py`](src/governance/safety_gate.py) | **Zero Unchecked Invocations.** Two-stage pre-flight check (deterministic regex blocklist + lightweight semantic classifier). Rejects adversarial prompts, system prompt extraction, and non-business requests before invoking expensive multi-agent research. |
-| **2. Hard Runtime Budget Governor** | [`src/governance/budget_governor.py`](src/governance/budget_governor.py) | **Deterministic Circuit Breakers.** Hard limits in Python code (`MAX_ITERATIONS = 5`, `MAX_TOOL_CALLS = 25`, `MAX_WALLCLOCK_SECONDS = 180s`). Cannot be overridden by LLM tokens or recursive agent loops. |
+| **1. Safety & Scope Gate** | [`src/governance/safety_gate.py`](src/governance/safety_gate.py) | **Zero Unchecked Invocations.** Two-stage pre-flight check (deterministic regex blocklist + lightweight semantic classifier). Rejects adversarial prompts, system prompt extraction, and non-business requests before invoking expensive multi-agent research. Fails closed if the classifier errors. |
+| **2. Hard Runtime Budget Governor** | [`src/governance/budget_governor.py`](src/governance/budget_governor.py) | **Deterministic Circuit Breakers.** Hard limits in Python code (`MAX_ITERATIONS = 5`, `MAX_TOOL_CALLS = 25`, `MAX_WALLCLOCK_SECONDS = 300s`). Two-tier gating: `begin_iteration` authorizes specialist dispatch; `try_consume_tool` gates tool calls in real time. Cannot be overridden by LLMs. |
 | **3. Untrusted Data Isolation** | [`src/governance/data_sanitizer.py`](src/governance/data_sanitizer.py) | **Zero Trust Web Scraping.** Strips executable scripts, HTML tags, and zero-width/invisible Unicode characters. Quarantines external web snippets inside `<untrusted_external_evidence>` XML tags so malicious third-party content cannot inject instructions into LLM context. |
-| **4. Restricted Authority (State Updater)** | [`src/governance/state_updater.py`](src/governance/state_updater.py) | **Propose-Validate-Policy-Merge.** Specialist agents cannot directly mutate `DiligenceState`. They propose findings. A deterministic Python layer validates strict Pydantic schemas, verifies domain authority (e.g. competition agent cannot write pricing models), checks URL provenance, and rejects contradictions. |
+| **4. Restricted Authority (State Updater)** | [`src/governance/state_updater.py`](src/governance/state_updater.py) | **Propose-Validate-Policy-Merge.** Specialist agents cannot directly mutate `DiligenceState`. Session-bound tools submit candidate findings to a deterministic Python validator enforcing strict schemas, domain authority, URL provenance, contradiction flags, and rejecting unknown agents (fail-closed). |
 | **5. Decision-Impact Unknown Triage** | [`src/models.py`](src/models.py) | **Epistemic Hygiene.** Unknowns are typed as `UnknownItem` and triaged by `DecisionImpact` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`). The orchestrator prioritizes research cycles exclusively on thesis dealbreakers rather than trivia. |
 
 ---
@@ -206,7 +206,7 @@ cp .env.example .env
 
 #### Option A: Google Gemini (Recommended for fast local testing)
 
-Gemini API provides immediate access with a free API key from Google AI Studio:
+Gemini API provides immediate access with an API key from Google AI Studio. The system defaults to `gemini-3.6-flash`, includes automatic exponential backoff for transient provider rate limits (503/429/UNAVAILABLE), and gracefully skips failed specialists so research continues with available evidence:
 
 ```env
 DEFAULT_MODEL_PROVIDER=gemini
@@ -247,6 +247,7 @@ Navigate to **http://127.0.0.1:8000** in your browser. The web UI features:
 - **Epistemic Evidence Ledger:** Filterable ledger of `FACT`, `ASSUMPTION`, `INFERENCE`, and `UNKNOWN` items with source links.
 - **Governance Chips:** Displays safety gate verdict, circuit breaker status, tool calls, and wall-clock execution time.
 - **Full Dossier Markdown:** Complete, structured executive summary with risks and next steps.
+- **Concurrency Limiting:** Live investigations are protected by a semaphore (max 2 concurrent live runs, returning HTTP 429 when busy) to ensure predictable execution.
 
 To bind to a custom host or port:
 ```bash
@@ -342,7 +343,7 @@ Raw LLM responses are not trustworthy due diligence. The system employs a multi-
 
 ## Testing & Quality Assurance
 
-The test suite contains **52 unit and integration tests** designed to execute in seconds without making external network or LLM calls.
+The test suite contains **54 unit and integration tests** designed to execute in seconds without making external network or LLM calls.
 
 ```bash
 # Run the complete test suite
@@ -353,9 +354,10 @@ python -m pytest -v
 
 # Run specific test modules
 python -m pytest test/test_governance.py  # Tests Safety Gate, Budget, Sanitizer, State Updater
+python -m pytest test/test_loop.py        # Tests Python research loop, specialist order & budget
 python -m pytest test/test_verdict.py     # Tests scoring rules and GO/MODIFY/KILL paths
 python -m pytest test/test_evidence.py    # Tests epistemic reclassification
-python -m pytest test/test_web.py        # Tests FastAPI endpoints
+python -m pytest test/test_web.py        # Tests FastAPI endpoints and concurrency guards
 python -m pytest test/test_cli.py        # Tests CLI argument parser and export modes
 ```
 
@@ -391,39 +393,41 @@ idea-diligence-agent/
 │   ├── models.py                 # Pydantic v2 DiligenceState, UnknownItem, Evidence models
 │   ├── model_provider.py         # Provider abstraction for Bedrock & Gemini
 │   ├── prompts.py                # System prompts with injection-defense directives
-│   ├── tools.py                  # Sanitized research tools (search_web, read_webpage, save_finding)
+│   ├── session.py                # Per-investigation ResearchSession isolating state, budget, and dispatch history
+│   ├── tools.py                  # Sanitized, session-bound research tools (search_web, read_webpage, save_finding)
 │   ├── evidence.py               # Epistemic reclassification & confidence recalibration
 │   ├── verdict.py                # Deterministic & hybrid GO/MODIFY/KILL synthesis engine
 │   ├── report.py                 # Dossier formatters (Rich terminal panel, Markdown, JSON)
 │   ├── demo_data.py              # Loader for canned sample investigations
 │   ├── agents/                   # Strands specialist agent factories
 │   │   ├── __init__.py
-│   │   ├── orchestrator.py       # Orchestrator with adaptive loop & governance hooks
+│   │   ├── orchestrator.py       # Python-owned research loop with adaptive specialist dispatch & governance hooks
 │   │   ├── problem_agent.py      # Problem & pain validator specialist
 │   │   ├── competition_agent.py  # Competitor & alternative mapping specialist
 │   │   └── economics_agent.py    # TAM, pricing & unit economics specialist
 │   ├── governance/               # The 5 defense-in-depth security boundaries
 │   │   ├── __init__.py           # Governance package exports
-│   │   ├── safety_gate.py        # Boundary 1: Regex blocklist + semantic classifier
+│   │   ├── safety_gate.py        # Boundary 1: Regex blocklist + semantic classifier (fails closed)
 │   │   ├── budget_governor.py    # Boundary 2: Circuit breaker for loops, calls, runtime
 │   │   ├── data_sanitizer.py     # Boundary 3: Untrusted web data XML envelope isolation
-│   │   └── state_updater.py      # Boundary 4: Propose-Validate-Policy-Merge pipeline
+│   │   └── state_updater.py      # Boundary 4: Propose-Validate-Policy-Merge pipeline (fails closed)
 │   └── web/                      # Interactive FastAPI web application
 │       ├── __init__.py
-│       ├── app.py                # FastAPI routes (health, demo, live, mock)
+│       ├── app.py                # FastAPI routes (health, demo, diligence with concurrency limit)
 │       └── static/
 │           ├── index.html        # Workspace UI layout
 │           ├── styles.css        # Modern responsive dark-mode styling
 │           └── app.js            # Reactive UI interactions & state management
-└── test/                         # 52 automated tests (zero API keys required)
+└── test/                         # 54 automated tests (zero API keys required)
     ├── conftest.py               # Test fixtures and shared mocks
     ├── test_cli.py               # CLI arguments and output formats
     ├── test_evidence.py          # Evidence epistemic classifier
     ├── test_governance.py        # Governance boundaries & circuit breakers
+    ├── test_loop.py              # Python research loop, specialist dispatch order, and budget enforcement
     ├── test_models.py            # Pydantic model serialization & state helpers
     ├── test_report.py            # Report rendering
     ├── test_verdict.py           # Verdict scoring & decision tree
-    └── test_web.py               # Web API endpoints
+    └── test_web.py               # Web API endpoints and concurrency limits
 ```
 
 ---

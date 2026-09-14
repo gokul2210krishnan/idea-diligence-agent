@@ -52,7 +52,7 @@ echo -e "\n[5/5] Running test suite to verify setup..."
 python -m pytest -q
 
 echo "============================================================"
-echo "   Setup complete! All 42 tests passed."
+echo "   Setup complete! All 54 tests passed."
 echo "============================================================"
 echo -e "\nTo activate your environment in your shell:"
 echo "   source .venv/bin/activate"

@@ -68,7 +68,7 @@ Write-Host "`n[5/5] Running test suite to verify setup..." -ForegroundColor Yell
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`n============================================================" -ForegroundColor Green
-    Write-Host "   Setup complete! All 42 tests passed." -ForegroundColor Green
+    Write-Host "   Setup complete! All 54 tests passed." -ForegroundColor Green
     Write-Host "============================================================" -ForegroundColor Green
     Write-Host "`nTo activate your environment:" -ForegroundColor Cyan
     Write-Host "   .\.venv\Scripts\Activate.ps1" -ForegroundColor White

@@ -90,14 +90,15 @@ Boundary 5: Decision-Impact Unknown Triage (CRITICAL vs LOW dealbreakers)
 - [`src/models.py`](src/models.py): Canonical Pydantic v2 schemas: `DiligenceState`, `Evidence`, `EvidenceType`, `VerdictReport`, `UnknownItem`, and `DecisionImpact`.
 - [`src/model_provider.py`](src/model_provider.py): Centralized model factory supporting Google Gemini and Amazon Bedrock with role-specific routing.
 - [`src/prompts.py`](src/prompts.py): System prompts with prompt-injection defense directives (`_INJECTION_DEFENSE`) across all specialist agents.
-- [`src/tools.py`](src/tools.py): Custom research tools (`search_web`, `read_webpage`, `save_finding`) wrapped with data sanitizers.
+- [`src/session.py`](src/session.py): Isolated per-investigation `ResearchSession` tracking state, governor, dispatched specialists, and follow-ups without process-global mutable state.
+- [`src/tools.py`](src/tools.py): Custom research tools (`search_web`, `read_webpage`, `save_finding`) with data sanitization, bound per investigation session via `create_research_tools` for in-flight budget checks and merge validation.
 - [`src/governance/`](src/governance/):
-  - `safety_gate.py`: Pre-flight prompt screening.
-  - `budget_governor.py`: Deterministic circuit breakers.
+  - `safety_gate.py`: Pre-flight prompt screening (fails closed on errors).
+  - `budget_governor.py`: Deterministic circuit breakers (`begin_iteration`, `try_consume_tool`).
   - `data_sanitizer.py`: Web scraping quarantine and Unicode cleaning.
-  - `state_updater.py`: State mutation validator ensuring agents cannot write unauthorized data.
+  - `state_updater.py`: State mutation validator ensuring agents cannot write unauthorized data (fails closed for unknown agents).
 - [`src/agents/`](src/agents/):
-  - `orchestrator.py`: Central coordinator managing the adaptive investigation loop.
+  - `orchestrator.py`: Python-owned research loop managing specialist selection, dispatch, and handoff to the verdict engine.
   - `problem_agent.py`: Specialist evaluating problem pain, customer segments, and demand.
   - `competition_agent.py`: Specialist mapping direct/indirect competitors and market gaps.
   - `economics_agent.py`: Specialist analyzing pricing, unit economics, and TAM/SAM.
@@ -106,7 +107,7 @@ Boundary 5: Decision-Impact Unknown Triage (CRITICAL vs LOW dealbreakers)
 - [`src/report.py`](src/report.py): Dossier rendering for terminal (Rich panels), Markdown, and JSON.
 - [`src/demo_data.py`](src/demo_data.py): Loader for pre-computed sample investigations.
 - [`src/web/`](src/web/):
-  - `app.py`: FastAPI server with `/api/health`, `/api/demo`, and `/api/investigate`.
+  - `app.py`: FastAPI server with `/api/health`, `/api/demo`, and `/api/diligence` (with semaphore-based concurrency limiting).
   - `static/`: Modern, responsive dark-mode workspace UI (HTML/CSS/vanilla JS).
 - [`src/main.py`](src/main.py): Single CLI and web server entry point.
 
@@ -167,7 +168,7 @@ chmod +x ./scripts/setup.sh
    ```bash
    python -m pytest
    ```
-   All 52 tests should pass immediately.
+   All 54 tests should pass immediately.
 
 ---
 
@@ -180,7 +181,7 @@ cp .env.example .env
 
 ### Option 1: Google Gemini (Fastest & Free Tier)
 
-Gemini 2.5 Flash is ideal for development due to fast inference and a generous free tier:
+Gemini 3.6 Flash is ideal for development due to fast inference and a generous free tier:
 
 1. Obtain an API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
 2. Configure `.env`:
@@ -257,6 +258,7 @@ python -m pytest -v
 
 # Run a specific test module
 python -m pytest test/test_governance.py
+python -m pytest test/test_loop.py
 
 # Run a single test function
 python -m pytest test/test_verdict.py -k test_deterministic_kill_weak_problem
@@ -290,10 +292,10 @@ Rich panels handle terminal encoding cleanly, but raw strings printed to standar
 ### 2. The 5 Governance Invariants
 
 Never introduce code that bypasses the governance boundaries:
-- **No Direct State Mutation:** Agents must never write directly to `DiligenceState`. They must submit candidate findings through `validate_and_merge()`.
+- **No Direct State Mutation:** Agents must never write directly to `DiligenceState`. They must submit candidate findings through `validate_and_merge()`, and unauthorized or unknown agents are rejected (fail-closed).
 - **No Unsanitized Web Text:** Content fetched from DuckDuckGo or web scraping must be passed through `sanitize_web_content()` before entering prompt context.
-- **Circuit Breaker Enforcement:** Any repetitive agent loop must query `BudgetGovernor.check_budget()` before each iteration.
-- **Pre-Flight Safety Gate:** The entry point in `orchestrator.py` must run `evaluate_scope_and_safety()` before instantiating specialist agents.
+- **Circuit Breaker Enforcement:** The Python control loop must call `BudgetGovernor.begin_iteration(agent_name)` before dispatching any specialist, and tools must call `BudgetGovernor.try_consume_tool(agent_name)` to enforce iteration, tool-call, and time limits.
+- **Pre-Flight Safety Gate:** The entry point in `orchestrator.py` must run `evaluate_scope_and_safety()` before instantiating specialist agents. The gate fails closed if the classifier errors.
 
 ### 3. Type Safety & Pydantic v2
 
