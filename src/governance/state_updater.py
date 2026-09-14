@@ -13,7 +13,6 @@ Only proposals that pass all checks are merged into the authoritative state.
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -116,8 +115,10 @@ def _validate_authorization(proposal: FindingProposal) -> tuple[bool, str]:
     allowed = _AGENT_PERMISSIONS.get(agent)
 
     if allowed is None:
-        # Unknown agent — fail open but warn
-        return True, f"Unknown agent '{agent}' — no permission map, allowed by default."
+        return False, (
+            f"Unknown agent '{agent}' is not authorized to write state. "
+            f"Known agents: {', '.join(sorted(_AGENT_PERMISSIONS))}"
+        )
 
     if proposal.category.lower() not in allowed:
         return False, (

@@ -31,7 +31,7 @@ The user does not steer the research. Submit an idea → get a dossier.
 
 ## How we built it
 
-- **Strands Agents SDK** with the agents-as-tools pattern. The orchestrator dispatches `problem_agent`, `competition_agent`, and `economics_agent`.
+- **Strands Agents SDK** with a Python-owned dispatch loop. Specialists (`problem_agent`, `competition_agent`, `economics_agent`) research; the budget governor decides whether they run.
 - **Configurable model provider** (Amazon Bedrock or Gemini) so the same architecture runs on AWS or a zero-wait local key.
 - **Pydantic v2** `DiligenceState` as the single source of truth per session.
 - **Five defense boundaries:** safety gate, budget governor, untrusted-web envelope, state authority layer, decision-impact unknown triage.

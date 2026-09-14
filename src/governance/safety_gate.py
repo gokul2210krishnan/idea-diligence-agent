@@ -228,10 +228,14 @@ def evaluate_scope_and_safety(raw_idea: str) -> ScopeResult:
                 risk_flags=risk_flags,
             )
     except Exception as e:
-        # If the semantic check fails (e.g., API error), log a warning
-        # but allow the idea through — fail-open for availability
-        risk_flags.append(
-            f"Semantic safety check failed ({type(e).__name__}): proceeding with caution."
+        return ScopeResult(
+            is_valid=False,
+            rejection_reason=(
+                f"Safety classifier unavailable ({type(e).__name__}). "
+                "Request rejected until the semantic check can run."
+            ),
+            sanitized_idea="",
+            risk_flags=risk_flags,
         )
 
     return ScopeResult(

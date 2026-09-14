@@ -121,6 +121,21 @@ All notable progress on the hackathon build, tracked by phase.
 
 ---
 
+## Control-plane fix (Gokul review) — ✅ COMPLETE (Sep 14, 2026)
+
+Python now owns the research loop and budget. Governance fails closed.
+
+### Changed
+- Removed process-global `_session_state` / `_session_governor` and shared agent singletons
+- `ResearchSession` isolates each investigation
+- `run_research_loop` dispatches specialists only after `BudgetGovernor.begin_iteration`
+- Session-bound tools refuse search/read once `try_consume_tool` denies
+- Safety gate rejects when the semantic classifier errors (no fail-open)
+- State updater rejects unknown agents
+- Live web investigations are capped (HTTP 429) and return HTTP 500 on failure
+
+---
+
 ## Open Source Contributor & Documentation Overhaul — ✅ COMPLETE (Sep 13, 2026)
 
 **Goal:** Provide comprehensive, accessible, and crystal-clear documentation so any open-source contributor can understand, run, test, and contribute to the project.
