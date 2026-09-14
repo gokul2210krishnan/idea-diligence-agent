@@ -2,10 +2,14 @@ const form = document.getElementById("idea-form");
 const ideaInput = document.getElementById("idea");
 const demoBtn = document.getElementById("run-demo");
 const liveBtn = document.getElementById("run-live");
+const cancelRunBtn = document.getElementById("cancel-run");
+const cancelProgressBtn = document.getElementById("cancel-progress");
 const progress = document.getElementById("progress");
 const errorBox = document.getElementById("error");
 const results = document.getElementById("results");
 const empty = document.getElementById("empty");
+
+let activeJobId = null;
 
 document.querySelectorAll("[data-idea]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -30,6 +34,9 @@ demoBtn.addEventListener("click", async () => {
   await investigate({ idea: ideaInput.value, demo: true, live: false });
 });
 
+cancelRunBtn.addEventListener("click", () => requestCancel());
+cancelProgressBtn.addEventListener("click", () => requestCancel());
+
 function showTab(name) {
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.tab === name);
@@ -39,19 +46,49 @@ function showTab(name) {
   });
 }
 
-function setBusy(busy) {
+function setBusy(busy, { cancellable } = {}) {
   liveBtn.disabled = busy;
   demoBtn.disabled = busy;
+  cancelRunBtn.classList.toggle("hidden", !cancellable);
+  if (!cancellable) resetCancelButtons();
+}
+
+function setCancelling(stopping) {
+  [cancelRunBtn, cancelProgressBtn].forEach((button) => {
+    button.disabled = stopping;
+    button.textContent = stopping ? "Stopping…" : "Stop";
+  });
+}
+
+function resetCancelButtons() {
+  setCancelling(false);
+}
+
+async function requestCancel() {
+  if (!activeJobId) return;
+  setCancelling(true);
+  try {
+    const job = await readJson(await fetch(`/api/diligence/${activeJobId}/cancel`, {
+      method: "POST",
+    }));
+    renderActivity(job);
+  } catch (err) {
+    setCancelling(false);
+    showError(err.message);
+  }
 }
 
 function setProgress(active) {
   progress.classList.toggle("hidden", !active);
   empty.classList.toggle("hidden", active || !results.classList.contains("hidden"));
   if (!active) return;
+  const title = document.getElementById("progress-title");
+  if (title) title.textContent = "Investigation running";
   const log = document.getElementById("activity-log");
   if (log) log.innerHTML = "";
   const status = document.getElementById("progress-status");
   if (status) status.textContent = "Starting…";
+  resetCancelButtons();
   renderStepper("safety");
 }
 
@@ -73,7 +110,13 @@ function renderActivity(job) {
   renderStepper(job.phase || "safety");
   const events = job.events || [];
   const status = document.getElementById("progress-status");
+  const title = document.getElementById("progress-title");
   const latest = events[events.length - 1];
+  const stopping = Boolean(job.cancel_requested) || job.status === "cancelled";
+  if (title) {
+    title.textContent = stopping ? "Stopping investigation" : "Investigation running";
+  }
+  if (stopping) setCancelling(true);
   if (status) {
     status.textContent = latest ? latest.message : "Waiting for the first pipeline event…";
   }
@@ -93,6 +136,9 @@ async function pollJob(jobId) {
     const job = await readJson(await fetch(`/api/diligence/${jobId}`));
     renderActivity(job);
     if (job.status === "done") return job.result;
+    if (job.status === "cancelled") {
+      throw Object.assign(new Error("Investigation stopped."), { name: "InvestigationStoppedError" });
+    }
     if (job.status === "error") {
       throw new Error(job.error || "Investigation failed.");
     }
@@ -137,8 +183,9 @@ async function investigate({ idea, demo, live }) {
   hideError();
   results.classList.add("hidden");
   empty.classList.add("hidden");
-  setBusy(true);
+  setBusy(true, { cancellable: live });
   setProgress(true);
+  activeJobId = null;
 
   try {
     const response = await fetch(demo ? "/api/demo" : "/api/diligence", {
@@ -148,6 +195,7 @@ async function investigate({ idea, demo, live }) {
     });
     let payload = await readJson(response);
     if (payload.job_id && payload.status && payload.status !== "done") {
+      activeJobId = payload.job_id;
       renderActivity(payload);
       payload = await pollJob(payload.job_id);
     } else if (payload.result) {
@@ -160,10 +208,15 @@ async function investigate({ idea, demo, live }) {
     render(payload);
   } catch (err) {
     empty.classList.remove("hidden");
-    showError(live
-      ? `${err.message} Use “Load demo dossier” if you want to walk the UI without live model calls.`
-      : err.message);
+    if (err.name === "InvestigationStoppedError") {
+      showError("Investigation stopped. Submit the idea again when you want to resume.");
+    } else {
+      showError(live
+        ? `${err.message} Use “Load demo dossier” if you want to walk the UI without live model calls.`
+        : err.message);
+    }
   } finally {
+    activeJobId = null;
     setBusy(false);
     clearProgress();
   }

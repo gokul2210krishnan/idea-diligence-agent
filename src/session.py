@@ -10,6 +10,10 @@ from src.models import DiligenceState
 from src.progress import emit as emit_progress
 
 
+class InvestigationCancelled(Exception):
+    """Raised when the operator stops a live investigation."""
+
+
 @dataclass
 class ResearchSession:
     """Isolated runtime for one idea. Concurrent investigations must not share this."""
@@ -19,6 +23,14 @@ class ResearchSession:
     dispatched: list[str] = field(default_factory=list)
     follow_ups: int = 0
     on_progress: Optional[Callable[[dict[str, Any]], None]] = None
+    should_stop: Optional[Callable[[], bool]] = None
+
+    def stop_requested(self) -> bool:
+        return bool(self.should_stop and self.should_stop())
+
+    def raise_if_stopped(self) -> None:
+        if self.stop_requested():
+            raise InvestigationCancelled()
 
     def emit(
         self,
@@ -29,6 +41,7 @@ class ResearchSession:
         agent: str | None = None,
         tool: str | None = None,
     ) -> None:
+        self.raise_if_stopped()
         emit_progress(
             self.on_progress,
             phase=phase,

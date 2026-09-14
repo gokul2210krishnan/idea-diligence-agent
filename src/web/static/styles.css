@@ -186,6 +186,14 @@ button:focus-visible {
 
 .btn-secondary:hover:not(:disabled) { background: var(--bg); }
 
+.btn-stop {
+  background: var(--surface);
+  color: var(--kill-fg);
+  border: 1px solid #e4b4b4;
+}
+
+.btn-stop:hover:not(:disabled) { background: var(--kill-bg); }
+
 .hint { margin: 12px 0 0; font-size: 12px; }
 
 .workspace { min-height: calc(100vh - var(--header) - 48px); }
@@ -228,6 +236,17 @@ button:focus-visible {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+.progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+.progress-head .card-title { margin: 0; }
+.progress-head .btn { padding: 6px 10px; font-size: 13px; }
 
 .stepper {
   list-style: none;

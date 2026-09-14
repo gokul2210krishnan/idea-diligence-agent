@@ -32,7 +32,7 @@ from src.model_provider import ModelRole, describe_model
 from src.models import DecisionImpact, DiligenceState, UnknownStatus
 from src.progress import emit, specialist_label
 from src.report import render_markdown_report
-from src.session import ResearchSession
+from src.session import InvestigationCancelled, ResearchSession
 from src.tools import create_research_tools
 from src.verdict import synthesize_verdict
 
@@ -53,6 +53,18 @@ _JSON_FINDING = re.compile(
 )
 
 DispatchFn = Callable[[ResearchSession, str], str]
+
+def _sleep_interruptible(session: ResearchSession, seconds: float) -> None:
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        session.raise_if_stopped()
+        time.sleep(min(0.2, max(0.0, deadline - time.time())))
+
+
+def _raise_if_stopped(should_stop: Callable[[], bool] | None) -> None:
+    if should_stop and should_stop():
+        raise InvestigationCancelled()
+
 
 _DISPATCH_ATTEMPTS = 3
 _TRANSIENT_MARKERS = (
@@ -147,6 +159,7 @@ def dispatch_specialist(session: ResearchSession, agent_name: str) -> str:
         governor=session.governor,
         agent_name=agent_name,
         on_progress=session.on_progress,
+        should_stop=session.should_stop,
     )
     factories = {
         "problem_agent": create_problem_agent,
@@ -171,6 +184,8 @@ def dispatch_specialist(session: ResearchSession, agent_name: str) -> str:
                 agent=agent_name,
             )
             return result
+        except InvestigationCancelled:
+            raise
         except Exception as exc:
             last_error = exc
             transient = _is_transient_provider_error(exc)
@@ -184,7 +199,7 @@ def dispatch_specialist(session: ResearchSession, agent_name: str) -> str:
                 level="warn",
                 agent=agent_name,
             )
-            time.sleep(wait)
+            _sleep_interruptible(session, wait)
 
     assert last_error is not None
     note = (
@@ -210,6 +225,7 @@ def run_research_loop(
     notes: list[str] = []
 
     while not session.governor.is_exhausted():
+        session.raise_if_stopped()
         agent_name = select_next_specialist(session)
         if agent_name is None:
             break
@@ -232,6 +248,8 @@ def run_research_loop(
         )
         try:
             notes.append(dispatch(session, agent_name))
+        except InvestigationCancelled:
+            raise
         except Exception as exc:
             note = (
                 f"{agent_name} failed ({type(exc).__name__}). "
@@ -240,6 +258,7 @@ def run_research_loop(
             session.emit("research", note, level="warn", agent=agent_name)
             session.state.log_action(agent_name, f"Failed {agent_name}", str(exc)[:200])
             notes.append(note)
+        session.raise_if_stopped()
 
     return "\n\n".join(notes)
 
@@ -265,11 +284,13 @@ def _seed_unknowns(state: DiligenceState) -> None:
 def run_diligence(
     idea: str,
     on_progress: Callable[[dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[str, DiligenceState, ScopeResult, dict]:
     """Run a full due diligence investigation on a product idea.
 
     Each call creates its own ResearchSession. Concurrent calls do not share
     state, agents, or budget counters. ``on_progress`` receives UI-safe event dicts.
+    ``should_stop`` is checked between specialists so a live UI can cancel the run.
     """
     print(f"\n{'='*60}")
     print(f"  IDEA DILIGENCE AGENT — Governed Pipeline + Verdict Engine")
@@ -301,6 +322,7 @@ def run_diligence(
         )
 
     emit(on_progress, phase="safety", message="Safety gate passed", level="ok")
+    _raise_if_stopped(should_stop)
 
     governor = BudgetGovernor(
         max_iterations=5,
@@ -312,7 +334,12 @@ def run_diligence(
 
     state = DiligenceState(idea=scope_result.sanitized_idea)
     _seed_unknowns(state)
-    session = ResearchSession(state=state, governor=governor, on_progress=on_progress)
+    session = ResearchSession(
+        state=state,
+        governor=governor,
+        on_progress=on_progress,
+        should_stop=should_stop,
+    )
 
     emit(
         on_progress,
@@ -321,6 +348,7 @@ def run_diligence(
     )
 
     research_notes = run_research_loop(session)
+    session.raise_if_stopped()
 
     emit(
         on_progress,

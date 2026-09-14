@@ -22,7 +22,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.demo_data import load_sample_investigation
+from src.progress import progress_event
 from src.report import render_markdown_report
+from src.session import InvestigationCancelled
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -56,11 +58,12 @@ class DiligenceResponse(BaseModel):
 
 class DiligenceJobResponse(BaseModel):
     job_id: str
-    status: Literal["running", "done", "error"]
+    status: Literal["running", "done", "error", "cancelled"]
     error: Optional[str] = None
     result: Optional[DiligenceResponse] = None
     phase: str = "safety"
     events: list[dict[str, Any]] = Field(default_factory=list)
+    cancel_requested: bool = False
 
 
 @dataclass
@@ -71,6 +74,7 @@ class _Job:
     result: Optional[DiligenceResponse] = None
     phase: str = "safety"
     events: list[dict[str, Any]] = field(default_factory=list)
+    cancel: threading.Event = field(default_factory=threading.Event)
 
 
 _JOBS: dict[str, _Job] = {}
@@ -108,6 +112,7 @@ def _snapshot(job: _Job) -> DiligenceJobResponse:
         result=job.result,
         phase=job.phase,
         events=list(job.events),
+        cancel_requested=job.cancel.is_set() and job.status == "running",
     )
 
 
@@ -147,8 +152,23 @@ def _finish_job(job_id: str, **updates: Any) -> None:
         job = _JOBS.get(job_id)
         if job is None:
             return
+        if job.status == "cancelled" and updates.get("status") in {"done", "error"}:
+            return
         for key, value in updates.items():
             setattr(job, key, value)
+
+
+def _job_should_stop(job_id: str) -> bool:
+    job = _get_job(job_id)
+    return job is None or job.cancel.is_set()
+
+
+def _mark_cancelled(job_id: str, message: str) -> None:
+    _append_event(
+        job_id,
+        progress_event(phase="done", message=message, level="warn"),
+    )
+    _finish_job(job_id, status="cancelled", error=None, phase="done")
 
 
 def _run_live_job(job_id: str, idea: str) -> None:
@@ -157,10 +177,20 @@ def _run_live_job(job_id: str, idea: str) -> None:
     def on_progress(event: dict[str, Any]) -> None:
         _append_event(job_id, event)
 
+    def should_stop() -> bool:
+        return _job_should_stop(job_id)
+
     try:
         from src.agents.orchestrator import run_diligence
 
-        _formatted, state, scope, budget = run_diligence(idea, on_progress=on_progress)
+        _formatted, state, scope, budget = run_diligence(
+            idea,
+            on_progress=on_progress,
+            should_stop=should_stop,
+        )
+        if should_stop():
+            _mark_cancelled(job_id, "Investigation stopped")
+            return
         result = _pack(
             state,
             scope,
@@ -169,7 +199,12 @@ def _run_live_job(job_id: str, idea: str) -> None:
             reason=scope.rejection_reason,
         )
         _finish_job(job_id, status="done", result=result, phase="done")
+    except InvestigationCancelled:
+        _mark_cancelled(job_id, "Investigation stopped")
     except Exception as exc:
+        if should_stop():
+            _mark_cancelled(job_id, "Investigation stopped")
+            return
         logger.exception("Live investigation %s failed", job_id)
         _append_event(job_id, {
             "at": "",
@@ -254,6 +289,31 @@ def diligence_job(job_id: str) -> DiligenceJobResponse:
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown investigation.")
     return _snapshot(job)
+
+
+@app.post("/api/diligence/{job_id}/cancel", response_model=DiligenceJobResponse)
+def cancel_diligence(job_id: str) -> DiligenceJobResponse:
+    job = _get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown investigation.")
+    if job.status != "running":
+        return _snapshot(job)
+
+    already = job.cancel.is_set()
+    job.cancel.set()
+    if not already:
+        _append_event(
+            job_id,
+            progress_event(
+                phase=job.phase,
+                message="Stop requested — waiting for the current step to finish",
+                level="warn",
+            ),
+        )
+    latest = _get_job(job_id)
+    if latest is None:
+        raise HTTPException(status_code=404, detail="Unknown investigation.")
+    return _snapshot(latest)
 
 
 @app.get("/")

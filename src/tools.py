@@ -20,6 +20,7 @@ from src.governance.data_sanitizer import sanitize_web_content
 from src.governance.state_updater import FindingProposal, validate_and_merge
 from src.models import DiligenceState
 from src.progress import emit, specialist_label
+from src.session import InvestigationCancelled
 
 
 def _raw_http_body(url: str) -> str:
@@ -126,11 +127,23 @@ def create_research_tools(
     governor: BudgetGovernor,
     agent_name: str,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ):
     """Build search/read/save tools bound to one investigation and one specialist."""
     label = specialist_label(agent_name)
 
+    def _stopped() -> bool:
+        return bool(should_stop and should_stop())
+
+    def _stop_message() -> str:
+        return (
+            "[STOPPED] The operator cancelled this investigation. "
+            "Do not call more tools."
+        )
+
     def _note(message: str, *, tool: str, level: str = "info") -> None:
+        if _stopped():
+            raise InvestigationCancelled()
         emit(
             on_progress,
             phase="research",
@@ -144,6 +157,8 @@ def create_research_tools(
     @tool
     def search_web(query: str) -> str:
         """Search the web for competitors, pricing, market data, or demand signals."""
+        if _stopped():
+            return _stop_message()
         allowed, reason = governor.try_consume_tool(agent_name)
         if not allowed:
             _note(f"{label} hit the tool budget", tool="search_web", level="warn")
@@ -158,6 +173,8 @@ def create_research_tools(
     @tool
     def read_webpage(url: str) -> str:
         """Read a webpage and return sanitized text."""
+        if _stopped():
+            return _stop_message()
         allowed, reason = governor.try_consume_tool(agent_name)
         if not allowed:
             _note(f"{label} hit the tool budget", tool="read_webpage", level="warn")
@@ -177,6 +194,12 @@ def create_research_tools(
         confidence: float = 0.5,
     ) -> str:
         """Propose a finding. Python validates and merges it into DiligenceState."""
+        if _stopped():
+            return json.dumps({
+                "accepted": False,
+                "reason": "Investigation stopped",
+                "warnings": [],
+            })
         proposal = FindingProposal(
             category=category,
             content=content,

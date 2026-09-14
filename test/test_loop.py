@@ -7,7 +7,7 @@ from src.agents.orchestrator import (
 from src.governance.budget_governor import BudgetGovernor
 from src.governance.safety_gate import ScopeResult
 from src.models import DecisionImpact, DiligenceState, EvidenceType
-from src.session import ResearchSession
+from src.session import InvestigationCancelled, ResearchSession
 
 
 def _session(max_iterations: int = 5) -> ResearchSession:
@@ -105,6 +105,33 @@ def test_python_loop_skips_failed_specialist_and_continues():
     assert calls[:3] == ["problem_agent", "competition_agent", "economics_agent"]
     assert "competition_agent failed" in notes
     assert "Specialist skipped" in notes
+
+
+def test_python_loop_stops_when_cancelled():
+    session = _session(max_iterations=5)
+    calls: list[str] = []
+    cancelled = False
+
+    def should_stop() -> bool:
+        return cancelled
+
+    session.should_stop = should_stop
+
+    def dispatch(_sess: ResearchSession, name: str) -> str:
+        nonlocal cancelled
+        calls.append(name)
+        if name == "problem_agent":
+            cancelled = True
+        return name
+
+    try:
+        run_research_loop(session, dispatch_fn=dispatch)
+        raise AssertionError("cancelled loop should not finish")
+    except InvestigationCancelled:
+        pass
+
+    assert calls == ["problem_agent"]
+    assert session.dispatched == ["problem_agent"]
 
 
 def test_transient_provider_errors_are_detected():
