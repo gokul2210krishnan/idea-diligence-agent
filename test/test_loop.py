@@ -1,11 +1,13 @@
 from src.agents.orchestrator import (
     ingest_agent_output,
+    run_diligence,
     run_research_loop,
     select_next_specialist,
 )
 from src.governance.budget_governor import BudgetGovernor
+from src.governance.safety_gate import ScopeResult
 from src.models import DecisionImpact, DiligenceState, EvidenceType
-from src.session import ResearchSession
+from src.session import InvestigationCancelled, ResearchSession
 
 
 def _session(max_iterations: int = 5) -> ResearchSession:
@@ -105,9 +107,48 @@ def test_python_loop_skips_failed_specialist_and_continues():
     assert "Specialist skipped" in notes
 
 
+def test_python_loop_stops_when_cancelled():
+    session = _session(max_iterations=5)
+    calls: list[str] = []
+    cancelled = False
+
+    def should_stop() -> bool:
+        return cancelled
+
+    session.should_stop = should_stop
+
+    def dispatch(_sess: ResearchSession, name: str) -> str:
+        nonlocal cancelled
+        calls.append(name)
+        if name == "problem_agent":
+            cancelled = True
+        return name
+
+    try:
+        run_research_loop(session, dispatch_fn=dispatch)
+        raise AssertionError("cancelled loop should not finish")
+    except InvestigationCancelled:
+        pass
+
+    assert calls == ["problem_agent"]
+    assert session.dispatched == ["problem_agent"]
+
+
 def test_transient_provider_errors_are_detected():
     from src.agents.orchestrator import _is_transient_provider_error
 
     assert _is_transient_provider_error(RuntimeError("503 Service Unavailable"))
     assert _is_transient_provider_error(RuntimeError("status: UNAVAILABLE"))
     assert not _is_transient_provider_error(RuntimeError("AccessDeniedException"))
+
+
+def test_run_diligence_emits_safety_progress():
+    events: list[dict] = []
+    from unittest.mock import patch
+
+    rejected = ScopeResult(is_valid=False, rejection_reason="too spicy", sanitized_idea="")
+    with patch("src.agents.orchestrator.evaluate_scope_and_safety", return_value=rejected):
+        run_diligence("An app that helps restaurants track food inventory waste", on_progress=events.append)
+    assert events
+    assert events[0]["phase"] == "safety"
+    assert any("Rejected" in event["message"] for event in events)

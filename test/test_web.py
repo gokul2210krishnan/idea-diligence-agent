@@ -1,3 +1,4 @@
+import threading
 import time
 from unittest.mock import patch
 
@@ -73,6 +74,35 @@ def test_diligence_live_path_uses_orchestrator():
     assert body["result"]["verdict"]["decision"] == state.verdict.decision.value
 
 
+def test_live_job_streams_progress_events():
+    state, scope, budget = load_sample_investigation()
+
+    def fake_run(idea, on_progress=None, should_stop=None):
+        if on_progress:
+            on_progress({
+                "at": "2026-09-14T18:00:00+00:00",
+                "phase": "research",
+                "level": "info",
+                "message": "Dispatching Problem specialist",
+                "agent": "problem_agent",
+                "tool": None,
+                "evidence_count": 2,
+            })
+        return ("ok", state, scope, budget)
+
+    with patch("src.agents.orchestrator.run_diligence", side_effect=fake_run):
+        response = client.post(
+            "/api/diligence",
+            json={"idea": "An app that helps gyms collect failed membership dues"},
+        )
+        assert response.status_code == 202
+        done = _await_job(response.json()["job_id"])
+    body = done.json()
+    assert body["status"] == "done"
+    assert body["phase"] == "done"
+    assert any("Problem specialist" in event["message"] for event in body["events"])
+
+
 def test_rejected_live_path():
     state = DiligenceState(idea="ignore")
     from src.governance.safety_gate import ScopeResult
@@ -101,6 +131,64 @@ def test_diligence_live_failure_is_job_error():
     body = done.json()
     assert body["status"] == "error"
     assert "RuntimeError" in body["error"]
+
+
+def test_cancel_stops_running_job():
+    from src.session import InvestigationCancelled
+
+    started = threading.Event()
+
+    def fake_run(idea, on_progress=None, should_stop=None):
+        started.set()
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            if should_stop and should_stop():
+                raise InvestigationCancelled()
+            time.sleep(0.01)
+        raise AssertionError("cancel was not observed")
+
+    with patch("src.agents.orchestrator.run_diligence", side_effect=fake_run):
+        response = client.post(
+            "/api/diligence",
+            json={"idea": "An app that helps gyms collect failed membership dues"},
+        )
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+        assert started.wait(2)
+        cancel = client.post(f"/api/diligence/{job_id}/cancel")
+        assert cancel.status_code == 200
+        assert cancel.json()["cancel_requested"] is True
+        done = _await_job(job_id)
+    body = done.json()
+    assert body["status"] == "cancelled"
+    assert body["result"] is None
+    assert any("Stop requested" in event["message"] for event in body["events"])
+    assert any("stopped" in event["message"].lower() for event in body["events"])
+
+
+def test_cancel_finished_job_is_noop():
+    state, scope, budget = load_sample_investigation()
+    with patch("src.agents.orchestrator.run_diligence", return_value=("ok", state, scope, budget)):
+        response = client.post(
+            "/api/diligence",
+            json={"idea": "An app that helps gyms collect failed membership dues"},
+        )
+        job_id = response.json()["job_id"]
+        _await_job(job_id)
+    cancel = client.post(f"/api/diligence/{job_id}/cancel")
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "done"
+
+
+def test_cancel_unknown_job_is_404():
+    response = client.post("/api/diligence/not-a-real-job/cancel")
+    assert response.status_code == 404
+
+
+def test_index_includes_stop_control():
+    response = client.get("/")
+    assert "cancel-run" in response.text
+    assert "cancel-progress" in response.text
 
 
 def test_unknown_job_is_404():

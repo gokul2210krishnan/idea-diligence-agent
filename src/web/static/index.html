@@ -48,9 +48,11 @@
         <div class="actions">
           <button type="submit" class="btn btn-primary" id="run-live">Run investigation</button>
           <button type="button" class="btn btn-secondary" id="run-demo">Load demo dossier</button>
+          <button type="button" class="btn btn-stop hidden" id="cancel-run">Stop</button>
         </div>
         <p class="hint">
-          Demo is instant and offline. A live run uses the full pipeline and can take 3–6 minutes — keep this tab open.
+          Demo is instant and offline. A live run uses the full pipeline and can take 3–6 minutes.
+          Stop it anytime; the current specialist may finish first.
         </p>
       </form>
     </aside>
@@ -65,12 +67,17 @@
       </div>
 
       <section id="progress" class="card hidden" aria-live="polite">
-        <p class="card-title">Investigation running</p>
+        <div class="progress-head">
+          <p class="card-title" id="progress-title">Investigation running</p>
+          <button type="button" class="btn btn-stop" id="cancel-progress">Stop</button>
+        </div>
         <ol class="stepper">
-          <li data-step="gate"><span>1</span> Safety and scope gate</li>
+          <li data-step="safety"><span>1</span> Safety and scope gate</li>
           <li data-step="research"><span>2</span> Specialist research</li>
           <li data-step="verdict"><span>3</span> Evidence and verdict</li>
         </ol>
+        <p class="progress-status" id="progress-status">Starting…</p>
+        <ol id="activity-log" class="activity-log"></ol>
       </section>
 
       <section id="error" class="banner-error hidden" role="alert"></section>
