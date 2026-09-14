@@ -7,12 +7,16 @@ FastAPI demo UI for the Idea Diligence Agent.
 
 from __future__ import annotations
 
+import logging
+import sys
 import threading
+import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -22,6 +26,10 @@ from src.report import render_markdown_report
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 _LIVE_RUNS = threading.Semaphore(2)
+_JOBS: dict[str, "DiligenceJobResponse"] = {}
+_JOBS_LOCK = threading.Lock()
+_MAX_JOBS = 32
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Idea Diligence Agent",
@@ -45,6 +53,25 @@ class DiligenceResponse(BaseModel):
     budget: dict[str, Any] = Field(default_factory=dict)
 
 
+class DiligenceJobResponse(BaseModel):
+    job_id: str
+    status: Literal["running", "done", "error"]
+    error: Optional[str] = None
+    result: Optional[DiligenceResponse] = None
+
+
+def configure_stdio() -> None:
+    """Avoid UnicodeEncodeError when specialists print into a Windows console."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def _pack(state, scope_result, budget_status, rejected: bool = False, reason: str | None = None) -> DiligenceResponse:
     return DiligenceResponse(
         rejected=rejected,
@@ -57,9 +84,59 @@ def _pack(state, scope_result, budget_status, rejected: bool = False, reason: st
     )
 
 
+def _put_job(job: DiligenceJobResponse) -> None:
+    with _JOBS_LOCK:
+        _JOBS[job.job_id] = job
+        extra = len(_JOBS) - _MAX_JOBS
+        if extra <= 0:
+            return
+        for job_id, stored in list(_JOBS.items()):
+            if stored.status == "running":
+                continue
+            del _JOBS[job_id]
+            extra -= 1
+            if extra <= 0:
+                break
+
+
+def _get_job(job_id: str) -> DiligenceJobResponse | None:
+    with _JOBS_LOCK:
+        return _JOBS.get(job_id)
+
+
+def _run_live_job(job_id: str, idea: str) -> None:
+    configure_stdio()
+    try:
+        from src.agents.orchestrator import run_diligence
+
+        _formatted, state, scope, budget = run_diligence(idea)
+        result = _pack(
+            state,
+            scope,
+            budget,
+            rejected=not scope.is_valid,
+            reason=scope.rejection_reason,
+        )
+        _put_job(DiligenceJobResponse(job_id=job_id, status="done", result=result))
+    except Exception as exc:
+        logger.exception("Live investigation %s failed", job_id)
+        _put_job(DiligenceJobResponse(
+            job_id=job_id,
+            status="error",
+            error=f"{type(exc).__name__}: {exc}",
+        ))
+    finally:
+        _LIVE_RUNS.release()
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "idea-diligence-agent", "phase": "3-4"}
+    return {
+        "status": "ok",
+        "service": "idea-diligence-agent",
+        "phase": "3-4",
+        "live": "jobs",
+    }
 
 
 @app.get("/api/demo", response_model=DiligenceResponse)
@@ -68,8 +145,8 @@ def demo() -> DiligenceResponse:
     return _pack(state, scope, budget)
 
 
-@app.post("/api/diligence", response_model=DiligenceResponse)
-def diligence(request: IdeaRequest) -> DiligenceResponse:
+@app.post("/api/diligence")
+def diligence(request: IdeaRequest):
     idea = request.idea.strip()
     if not idea:
         raise HTTPException(status_code=400, detail="Idea cannot be empty.")
@@ -84,29 +161,36 @@ def diligence(request: IdeaRequest) -> DiligenceResponse:
             detail="Too many live investigations. Load the demo dossier or retry shortly.",
         )
 
+    job_id = str(uuid.uuid4())
+    _put_job(DiligenceJobResponse(job_id=job_id, status="running"))
     try:
-        from src.agents.orchestrator import run_diligence
-
-        _formatted, state, scope, budget = run_diligence(idea)
-    except HTTPException:
-        raise
+        threading.Thread(
+            target=_run_live_job,
+            args=(job_id, idea),
+            name=f"diligence-{job_id[:8]}",
+            daemon=True,
+        ).start()
     except Exception:
-        raise HTTPException(
-            status_code=500,
-            detail="Investigation failed. Check server logs and try again.",
-        )
-    finally:
         _LIVE_RUNS.release()
+        _put_job(DiligenceJobResponse(
+            job_id=job_id,
+            status="error",
+            error="Could not start the investigation thread.",
+        ))
+        raise HTTPException(status_code=500, detail="Could not start the investigation.")
 
-    if not scope.is_valid:
-        return _pack(
-            state,
-            scope,
-            budget,
-            rejected=True,
-            reason=scope.rejection_reason,
-        )
-    return _pack(state, scope, budget)
+    return JSONResponse(
+        status_code=202,
+        content=jsonable_encoder(_get_job(job_id)),
+    )
+
+
+@app.get("/api/diligence/{job_id}", response_model=DiligenceJobResponse)
+def diligence_job(job_id: str) -> DiligenceJobResponse:
+    job = _get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown investigation.")
+    return job
 
 
 @app.get("/")

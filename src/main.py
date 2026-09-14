@@ -153,11 +153,14 @@ def run_cli(args: argparse.Namespace) -> int:
 
 
 def run_web(port: int) -> int:
+    import os
     import uvicorn
-    from src.web.app import app
+    from src.web.app import app, configure_stdio
 
-    print(f"\nStarting Idea Diligence UI on http://127.0.0.1:{port}\n")
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    configure_stdio()
+    host = os.getenv("HOST", "127.0.0.1")
+    print(f"\nStarting Idea Diligence UI on http://{host}:{port}\n")
+    uvicorn.run(app, host=host, port=port, log_level="info", timeout_keep_alive=75)
     return 0
 
 

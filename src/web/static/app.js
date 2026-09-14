@@ -44,7 +44,7 @@ function setBusy(busy) {
   demoBtn.disabled = busy;
 }
 
-function setProgress(active) {
+function setProgress(active, { slow } = {}) {
   progress.classList.toggle("hidden", !active);
   empty.classList.toggle("hidden", active || !results.classList.contains("hidden"));
   const steps = [...progress.querySelectorAll("[data-step]")];
@@ -61,7 +61,7 @@ function setProgress(active) {
       if (steps[i + 1]) steps[i + 1].classList.add("active");
       i += 1;
     }
-  }, 900);
+  }, slow ? 90000 : 900);
 }
 
 function clearProgress() {
@@ -80,12 +80,46 @@ function hideError() {
   errorBox.textContent = "";
 }
 
+function errorFrom(payload, status) {
+  const detail = payload && payload.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((item) => item.msg || JSON.stringify(item)).join("; ");
+  }
+  return `Request failed (${status})`;
+}
+
+async function readJson(response) {
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 202) {
+    throw new Error(errorFrom(payload, response.status));
+  }
+  return payload;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollJob(jobId) {
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    const job = await readJson(await fetch(`/api/diligence/${jobId}`));
+    if (job.status === "done") return job.result;
+    if (job.status === "error") {
+      throw new Error(job.error || "Investigation failed.");
+    }
+    await sleep(2000);
+  }
+  throw new Error("Investigation timed out after 10 minutes.");
+}
+
 async function investigate({ idea, demo, live }) {
   hideError();
   results.classList.add("hidden");
   empty.classList.add("hidden");
   setBusy(true);
-  setProgress(true);
+  setProgress(true, { slow: live });
 
   try {
     const response = await fetch(demo ? "/api/demo" : "/api/diligence", {
@@ -93,11 +127,13 @@ async function investigate({ idea, demo, live }) {
       headers: demo ? {} : { "Content-Type": "application/json" },
       body: demo ? undefined : JSON.stringify({ idea, demo: false }),
     });
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({}));
-      throw new Error(detail.detail || `Request failed (${response.status})`);
+    let payload = await readJson(response);
+    if (payload.job_id && payload.status && payload.status !== "done") {
+      payload = await pollJob(payload.job_id);
+    } else if (payload.result) {
+      payload = payload.result;
     }
-    const payload = await response.json();
+    if (!payload) throw new Error("Investigation returned no dossier.");
     if (payload.rejected) {
       throw new Error(payload.rejection_reason || "Rejected by the safety gate.");
     }

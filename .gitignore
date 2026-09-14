@@ -152,6 +152,7 @@ activemq-data/
 # Environments
 .env
 .envrc
+.deploy-url
 .venv
 env/
 venv/
