@@ -7,6 +7,8 @@
 
 > **An autonomous, multi-agent due diligence system that evaluates raw product ideas, conducts deep background research on problems, competitors, and unit economics, challenges founder assumptions, and delivers an evidence-backed GO, MODIFY, or KILL verdict — with zero babysitting.**
 
+**Live demo:** http://idea-diligence-agent-alb-369310072.us-east-1.elb.amazonaws.com — use **Load demo dossier** for an instant walkthrough.
+
 ---
 
 ## Table of Contents

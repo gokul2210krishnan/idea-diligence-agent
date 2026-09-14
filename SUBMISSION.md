@@ -2,7 +2,10 @@
 
 **Hackathon:** AWS Strands Agents SDK Hackathon  
 **Track:** Professional Agents  
-**Team:** Edmund & Gokul
+**Team:** Edmund & Gokul  
+**Live demo:** http://idea-diligence-agent-alb-369310072.us-east-1.elb.amazonaws.com
+
+Click **Load demo dossier** for an instant walkthrough. **Run investigation** is live Gemini research and takes 3–6 minutes.
 
 ---
 
@@ -98,6 +101,11 @@ Giving an LLM complete control over loop termination, tool invocation, and memor
 - **Cross-Claim Contradiction Detection**: Utilizing semantic graphs to automatically flag when two specialist agents find conflicting evidence (e.g., Problem Agent reports low pain while Economics Agent assumes high willingness to pay).
 
 ## How to try it
+
+**Live demo (no install):** http://idea-diligence-agent-alb-369310072.us-east-1.elb.amazonaws.com
+
+- **Load demo dossier** — instant canned restaurant-inventory verdict (no model calls)
+- **Run investigation** — live governed research (3–6 minutes; keep the tab open)
 
 ```bash
 pip install -r requirements.txt
