@@ -12,6 +12,7 @@ without consuming research budget.
 
 from __future__ import annotations
 
+import logging
 import re
 from enum import Enum
 from typing import Optional
@@ -21,6 +22,8 @@ from pydantic import BaseModel, Field
 from strands import Agent
 from src.model_provider import ModelRole, create_model
 from src.prompts import SAFETY_GATE_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +125,35 @@ def _check_deterministic(raw_idea: str) -> tuple[bool, list[str], Optional[str]]
         )
 
     return True, risk_flags, None
+
+
+def classifier_unavailable_reason(exc: BaseException) -> str:
+    """Human-readable fail-closed reason. Never includes secrets."""
+    text = f"{type(exc).__name__} {exc}".lower()
+    if "spending cap" in text or "resource_exhausted" in text or "exceeded its monthly" in text:
+        return (
+            "Gemini monthly spend cap reached, so the safety classifier cannot run. "
+            "Raise the cap at https://aistudio.google.com/spend, or use Load demo dossier."
+        )
+    if "429" in text or "too many requests" in text:
+        return (
+            "Gemini rate-limited the safety classifier (429). "
+            "Wait a minute and retry, or use Load demo dossier."
+        )
+    if "not found" in text or "404" in text:
+        return (
+            "Configured Gemini model is unavailable (404). "
+            "Check DEFAULT_MODEL_ID, or use Load demo dossier."
+        )
+    if "permission" in text or "access denied" in text or "401" in text or "403" in text:
+        return (
+            "Gemini rejected the API credentials. "
+            "Check GEMINI_API_KEY, or use Load demo dossier."
+        )
+    return (
+        f"Safety classifier unavailable ({type(exc).__name__}). "
+        "Request rejected until the semantic check can run."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -228,12 +260,11 @@ def evaluate_scope_and_safety(raw_idea: str) -> ScopeResult:
                 risk_flags=risk_flags,
             )
     except Exception as e:
+        logger.exception("Safety classifier failed")
+        print(f"  [SAFETY GATE] Classifier error: {type(e).__name__}: {e}")
         return ScopeResult(
             is_valid=False,
-            rejection_reason=(
-                f"Safety classifier unavailable ({type(e).__name__}). "
-                "Request rejected until the semantic check can run."
-            ),
+            rejection_reason=classifier_unavailable_reason(e),
             sanitized_idea="",
             risk_flags=risk_flags,
         )

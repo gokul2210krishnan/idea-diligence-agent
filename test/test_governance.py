@@ -28,6 +28,22 @@ def test_safety_gate_accepts_product_idea(_mock_semantic):
     assert "restaurants" in result.sanitized_idea
 
 
+@patch(
+    "src.governance.safety_gate._check_semantic",
+    side_effect=RuntimeError(
+        '429 Too Many Requests. Your project has exceeded its monthly spending cap.'
+    ),
+)
+def test_safety_gate_explains_gemini_spend_cap(_mock_semantic):
+    result = evaluate_scope_and_safety(
+        "An app that helps small restaurants track food inventory to reduce waste"
+    )
+    assert result.is_valid is False
+    reason = (result.rejection_reason or "").lower()
+    assert "spend cap" in reason
+    assert "aistudio.google.com/spend" in reason
+
+
 def test_budget_governor_exhausts_on_iterations():
     governor = BudgetGovernor(max_iterations=2, max_tool_calls_total=99, max_wallclock_seconds=999)
     governor.start()
