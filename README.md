@@ -372,7 +372,6 @@ idea-diligence-agent/
 ├── CHANGELOG.md                  # Detailed phase-by-phase implementation log
 ├── CODE_OF_CONDUCT.md            # Contributor Covenant Code of Conduct
 ├── CONTRIBUTING.md               # Contributor guidelines, workflow, and standards
-├── DEMO.md                       # 5-minute timed video recording script
 ├── LICENSE                       # Apache 2.0 Open Source License
 ├── README.md                     # This project overview & documentation
 ├── SUBMISSION.md                 # Devpost hackathon submission narrative
