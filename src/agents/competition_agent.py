@@ -12,8 +12,11 @@ from src.prompts import COMPETITION_AGENT_PROMPT
 from src.tools import save_finding, search_web, read_webpage
 
 
-def create_competition_agent() -> Agent:
+def create_competition_agent(tools=None) -> Agent:
     """Create and return a configured Competition Analysis Agent.
+
+    Args:
+        tools: Optional session-bound tools. Defaults to unbound research tools.
 
     Returns:
         A Strands Agent ready to research competitors and market landscape.
@@ -23,7 +26,7 @@ def create_competition_agent() -> Agent:
     agent = Agent(
         model=model,
         system_prompt=COMPETITION_AGENT_PROMPT,
-        tools=[search_web, read_webpage, save_finding],
+        tools=tools or [search_web, read_webpage, save_finding],
     )
 
     return agent

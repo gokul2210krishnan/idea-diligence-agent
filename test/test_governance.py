@@ -123,3 +123,65 @@ def test_state_updater_flags_contradiction(empty_state: DiligenceState):
     result = validate_and_merge(second, empty_state)
     assert result.accepted is True
     assert result.warnings
+
+
+@patch("src.governance.safety_gate._check_semantic", side_effect=RuntimeError("model unavailable"))
+def test_safety_gate_fails_closed_when_classifier_errors(_mock_semantic):
+    result = evaluate_scope_and_safety(
+        "An app that helps small restaurants track food inventory to reduce waste"
+    )
+    assert result.is_valid is False
+    assert "unavailable" in (result.rejection_reason or "").lower()
+    assert result.sanitized_idea == ""
+
+
+def test_state_updater_rejects_unknown_agent(empty_state: DiligenceState):
+    proposal = FindingProposal(
+        category="problem",
+        content="A sourced claim",
+        evidence_type="FACT",
+        source="https://example.com",
+        confidence=0.9,
+        proposed_by="rogue_agent",
+    )
+    result = validate_and_merge(proposal, empty_state)
+    assert result.accepted is False
+    assert "not authorized" in result.reason.lower()
+    assert empty_state.evidence == []
+
+
+def test_begin_iteration_enforces_limit():
+    governor = BudgetGovernor(max_iterations=2, max_tool_calls_total=99, max_wallclock_seconds=999)
+    governor.start()
+    assert governor.begin_iteration("problem_agent") is True
+    assert governor.begin_iteration("competition_agent") is True
+    assert governor.begin_iteration("economics_agent") is False
+    assert governor.is_exhausted() is True
+
+
+def test_try_consume_tool_enforces_total_and_per_agent():
+    governor = BudgetGovernor(
+        max_iterations=9,
+        max_tool_calls_total=3,
+        max_tool_calls_per_agent=2,
+        max_wallclock_seconds=999,
+    )
+    governor.start()
+    assert governor.try_consume_tool("problem_agent")[0] is True
+    assert governor.try_consume_tool("problem_agent")[0] is True
+    denied_agent, reason = governor.try_consume_tool("problem_agent")
+    assert denied_agent is False
+    assert "per-agent" in reason.lower()
+
+    governor = BudgetGovernor(
+        max_iterations=9,
+        max_tool_calls_total=1,
+        max_tool_calls_per_agent=8,
+        max_wallclock_seconds=999,
+    )
+    governor.start()
+    assert governor.try_consume_tool("competition_agent")[0] is True
+    denied_total, total_reason = governor.try_consume_tool("economics_agent")
+    assert denied_total is False
+    assert "total tool call" in total_reason.lower()
+

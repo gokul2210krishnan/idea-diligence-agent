@@ -1,13 +1,9 @@
 """
 Custom tools for the Idea Diligence Agent.
 
-These tools let the specialist agents perform real research:
-- Search the web for competitors, pricing, and market data
-- Read and extract information from web pages
-- Store structured findings back into the DiligenceState
-
-Tools are Python functions decorated with @tool from the Strands SDK.
-The LLM decides when and how to call them.
+Module-level tools remain for ad-hoc agent construction. The governed loop
+builds *session-bound* tools via ``create_research_tools`` so budget checks
+and state merges happen in Python at call time — not after the LLM returns.
 """
 
 from __future__ import annotations
@@ -17,7 +13,34 @@ import json
 from strands import tool
 from strands_tools import http_request
 
+from src.governance.budget_governor import BudgetGovernor
 from src.governance.data_sanitizer import sanitize_web_content
+from src.governance.state_updater import FindingProposal, validate_and_merge
+from src.models import DiligenceState
+
+
+def _raw_http_body(url: str) -> str:
+    result = http_request(url=url, method="GET")
+    if isinstance(result, dict):
+        return str(result.get("body", result))
+    return str(result)
+
+
+def _search_web_impl(query: str) -> str:
+    try:
+        search_url = f"https://html.duckduckgo.com/html/?q={query}"
+        raw = _raw_http_body(search_url)
+        return sanitize_web_content(raw, source_url=search_url)
+    except Exception as e:
+        return f"Search failed: {str(e)}. Try rephrasing your query."
+
+
+def _read_webpage_impl(url: str) -> str:
+    try:
+        raw = _raw_http_body(url)
+        return sanitize_web_content(raw, source_url=url)
+    except Exception as e:
+        return f"Failed to read {url}: {str(e)}"
 
 
 @tool
@@ -34,22 +57,7 @@ def search_web(query: str) -> str:
     Returns:
         Search results as text with titles, snippets, and URLs.
     """
-    try:
-        # Use DuckDuckGo HTML search (no API key needed)
-        search_url = f"https://html.duckduckgo.com/html/?q={query}"
-        result = http_request(
-            url=search_url,
-            method="GET",
-        )
-        # Extract the raw body text
-        if isinstance(result, dict):
-            raw = result.get("body", str(result))
-        else:
-            raw = str(result)
-        # Sanitize external content — strip scripts, invisible chars, wrap in envelope
-        return sanitize_web_content(raw, source_url=search_url)
-    except Exception as e:
-        return f"Search failed: {str(e)}. Try rephrasing your query."
+    return _search_web_impl(query)
 
 
 @tool
@@ -65,19 +73,7 @@ def read_webpage(url: str) -> str:
     Returns:
         The text content of the page (HTML stripped).
     """
-    try:
-        result = http_request(
-            url=url,
-            method="GET",
-        )
-        if isinstance(result, dict):
-            raw = result.get("body", "")
-        else:
-            raw = str(result)
-        # Sanitize external content — strip scripts, invisible chars, wrap in envelope
-        return sanitize_web_content(raw, source_url=url)
-    except Exception as e:
-        return f"Failed to read {url}: {str(e)}"
+    return _read_webpage_impl(url)
 
 
 @tool
@@ -111,8 +107,6 @@ def save_finding(
     Returns:
         Confirmation that the finding was saved.
     """
-    # This tool stores findings as structured JSON that the orchestrator
-    # will parse back into Evidence objects for the DiligenceState.
     finding = {
         "category": category,
         "content": content,
@@ -120,6 +114,62 @@ def save_finding(
         "source": source,
         "confidence": confidence,
     }
-    # Return the finding as JSON — the orchestrator will collect these
-    # from the agent's tool use results
     return json.dumps(finding, indent=2)
+
+
+def create_research_tools(
+    *,
+    state: DiligenceState,
+    governor: BudgetGovernor,
+    agent_name: str,
+):
+    """Build search/read/save tools bound to one investigation and one specialist."""
+
+    @tool
+    def search_web(query: str) -> str:
+        """Search the web for competitors, pricing, market data, or demand signals."""
+        allowed, reason = governor.try_consume_tool(agent_name)
+        if not allowed:
+            return (
+                f"[BUDGET STOP] {reason} "
+                "Do not call more tools. Summarize from evidence already gathered."
+            )
+        return _search_web_impl(query)
+
+    @tool
+    def read_webpage(url: str) -> str:
+        """Read a webpage and return sanitized text."""
+        allowed, reason = governor.try_consume_tool(agent_name)
+        if not allowed:
+            return (
+                f"[BUDGET STOP] {reason} "
+                "Do not call more tools. Summarize from evidence already gathered."
+            )
+        return _read_webpage_impl(url)
+
+    @tool
+    def save_finding(
+        category: str,
+        content: str,
+        evidence_type: str,
+        source: str = "",
+        confidence: float = 0.5,
+    ) -> str:
+        """Propose a finding. Python validates and merges it into DiligenceState."""
+        proposal = FindingProposal(
+            category=category,
+            content=content,
+            evidence_type=evidence_type,
+            source=source or "",
+            confidence=confidence,
+            proposed_by=agent_name,
+        )
+        result = validate_and_merge(proposal, state)
+        payload = {
+            "accepted": result.accepted,
+            "reason": result.reason,
+            "warnings": result.warnings,
+        }
+        return json.dumps(payload)
+
+    return [search_web, read_webpage, save_finding]

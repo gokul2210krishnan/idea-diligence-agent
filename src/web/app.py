@@ -7,6 +7,7 @@ FastAPI demo UI for the Idea Diligence Agent.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,6 +21,7 @@ from src.report import render_markdown_report
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+_LIVE_RUNS = threading.Semaphore(2)
 
 app = FastAPI(
     title="Idea Diligence Agent",
@@ -76,9 +78,26 @@ def diligence(request: IdeaRequest) -> DiligenceResponse:
         state, scope, budget = load_sample_investigation()
         return _pack(state, scope, budget)
 
-    from src.agents.orchestrator import run_diligence
+    if not _LIVE_RUNS.acquire(blocking=False):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many live investigations. Load the demo dossier or retry shortly.",
+        )
 
-    _formatted, state, scope, budget = run_diligence(idea)
+    try:
+        from src.agents.orchestrator import run_diligence
+
+        _formatted, state, scope, budget = run_diligence(idea)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Investigation failed. Check server logs and try again.",
+        )
+    finally:
+        _LIVE_RUNS.release()
+
     if not scope.is_valid:
         return _pack(
             state,

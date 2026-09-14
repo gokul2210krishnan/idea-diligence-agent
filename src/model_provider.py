@@ -69,6 +69,10 @@ def create_model(role: ModelRole):
     provider, model_id = _get_config(role)
 
     if provider == ModelProvider.GEMINI:
+        if not os.getenv("GEMINI_API_KEY"):
+            raise ValueError(
+                "GEMINI_API_KEY is required when DEFAULT_MODEL_PROVIDER=gemini."
+            )
         return GeminiModel(model_id=model_id)
 
     if provider == ModelProvider.BEDROCK:

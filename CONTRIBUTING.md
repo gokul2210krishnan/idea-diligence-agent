@@ -167,7 +167,7 @@ chmod +x ./scripts/setup.sh
    ```bash
    python -m pytest
    ```
-   All 42 tests should pass immediately.
+   All 52 tests should pass immediately.
 
 ---
 

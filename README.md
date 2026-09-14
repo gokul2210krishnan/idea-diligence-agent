@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests: 42 Passed](https://img.shields.io/badge/tests-42%20passed-brightgreen.svg)](test/)
+[![Tests: 52 Passed](https://img.shields.io/badge/tests-52%20passed-brightgreen.svg)](test/)
 [![Framework: AWS Strands Agents](https://img.shields.io/badge/framework-Strands%20Agents%20SDK-orange.svg)](https://strandsagents.com/)
 
 > **An autonomous, multi-agent due diligence system that evaluates raw product ideas, conducts deep background research on problems, competitors, and unit economics, challenges founder assumptions, and delivers an evidence-backed GO, MODIFY, or KILL verdict — with zero babysitting.**
@@ -73,7 +73,7 @@ Founders routinely waste weeks Googling competitors and talking themselves into 
 
 ### Agent Topology
 
-The system uses the **agents-as-tools** pattern from the AWS Strands Agents SDK. The Orchestrator acts as the central investigator, invoking specialist agents as callable tools based on prioritized research unknowns.
+The system uses a **Python-owned research loop**. The runtime inspects prioritized unknowns, asks the budget governor for permission, then dispatches a fresh Strands specialist. The LLM researches; it does not decide whether another loop runs.
 
 ```mermaid
 flowchart TD
@@ -342,7 +342,7 @@ Raw LLM responses are not trustworthy due diligence. The system employs a multi-
 
 ## Testing & Quality Assurance
 
-The test suite contains **42 unit and integration tests** designed to execute in seconds without making external network or LLM calls.
+The test suite contains **52 unit and integration tests** designed to execute in seconds without making external network or LLM calls.
 
 ```bash
 # Run the complete test suite
@@ -415,7 +415,7 @@ idea-diligence-agent/
 │           ├── index.html        # Workspace UI layout
 │           ├── styles.css        # Modern responsive dark-mode styling
 │           └── app.js            # Reactive UI interactions & state management
-└── test/                         # 42 automated tests (zero API keys required)
+└── test/                         # 52 automated tests (zero API keys required)
     ├── conftest.py               # Test fixtures and shared mocks
     ├── test_cli.py               # CLI arguments and output formats
     ├── test_evidence.py          # Evidence epistemic classifier

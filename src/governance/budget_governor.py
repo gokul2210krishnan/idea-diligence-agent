@@ -67,6 +67,42 @@ class BudgetGovernor:
             self.tool_calls_by_agent.get(agent_name, 0) + 1
         )
 
+    def begin_iteration(self, agent_name: str) -> bool:
+        """Authorize one specialist dispatch. Returns False if the loop must stop.
+
+        The Python runtime must call this *before* invoking an agent. A False
+        result means no dispatch happens — the governor is the control plane.
+        """
+        if self.is_exhausted():
+            return False
+        if self.is_agent_over_budget(agent_name):
+            self._exhaustion_reason = (
+                f"Per-agent tool call limit reached for {agent_name} "
+                f"({self.tool_calls_by_agent.get(agent_name, 0)}/{self.max_tool_calls_per_agent})"
+            )
+            return False
+        self.record_iteration()
+        return True
+
+    def try_consume_tool(self, agent_name: str) -> tuple[bool, str]:
+        """Authorize one inner tool call (search/read). Fail-closed if over budget."""
+        if self.is_exhausted():
+            return False, self._exhaustion_reason or "Budget exhausted"
+        if self.is_agent_over_budget(agent_name):
+            reason = (
+                f"Per-agent tool call limit reached for {agent_name} "
+                f"({self.tool_calls_by_agent.get(agent_name, 0)}/{self.max_tool_calls_per_agent})"
+            )
+            self._exhaustion_reason = reason
+            return False, reason
+        self.record_tool_call(agent_name)
+        if self.tool_calls_total >= self.max_tool_calls_total:
+            self._exhaustion_reason = (
+                f"Total tool call limit reached "
+                f"({self.tool_calls_total}/{self.max_tool_calls_total})"
+            )
+        return True, "ok"
+
     def elapsed_seconds(self) -> float:
         """Return wall-clock seconds since start()."""
         if self._start_time is None:

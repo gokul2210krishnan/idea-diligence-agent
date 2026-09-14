@@ -1,0 +1,89 @@
+from src.agents.orchestrator import (
+    ingest_agent_output,
+    run_research_loop,
+    select_next_specialist,
+)
+from src.governance.budget_governor import BudgetGovernor
+from src.models import DecisionImpact, DiligenceState, EvidenceType
+from src.session import ResearchSession
+
+
+def _session(max_iterations: int = 5) -> ResearchSession:
+    governor = BudgetGovernor(
+        max_iterations=max_iterations,
+        max_tool_calls_total=25,
+        max_tool_calls_per_agent=8,
+        max_wallclock_seconds=999,
+    )
+    governor.start()
+    state = DiligenceState(idea="A notebook app for leftover grocery ingredients")
+    state.add_unknown(
+        "Is the problem painful enough that buyers will pay?",
+        category="problem",
+        importance=DecisionImpact.CRITICAL,
+    )
+    return ResearchSession(state=state, governor=governor)
+
+
+def test_select_next_specialist_is_python_owned():
+    session = _session()
+    assert select_next_specialist(session) == "problem_agent"
+    session.dispatched.append("problem_agent")
+    assert select_next_specialist(session) == "competition_agent"
+    session.dispatched.append("competition_agent")
+    assert select_next_specialist(session) == "economics_agent"
+    session.dispatched.append("economics_agent")
+    assert select_next_specialist(session) == "problem_agent"
+    session.follow_ups = 1
+    assert select_next_specialist(session) is None
+
+
+def test_python_loop_stops_when_budget_exhausted():
+    session = _session(max_iterations=2)
+    calls: list[str] = []
+
+    def dispatch(sess: ResearchSession, name: str) -> str:
+        calls.append(name)
+        sess.state.add_evidence(
+            f"{name} finding",
+            EvidenceType.INFERENCE,
+            confidence=0.5,
+            category="problem",
+        )
+        return name
+
+    run_research_loop(session, dispatch_fn=dispatch)
+    assert calls == ["problem_agent", "competition_agent"]
+    assert session.governor.is_exhausted() is True
+    assert session.governor.iteration_count == 2
+
+
+def test_sessions_do_not_share_state():
+    first = _session()
+    second = _session()
+
+    def dispatch_first(sess: ResearchSession, name: str) -> str:
+        sess.state.add_evidence(
+            "only in first session",
+            EvidenceType.FACT,
+            source="https://example.com",
+            confidence=0.8,
+            category="problem",
+        )
+        return name
+
+    run_research_loop(first, dispatch_fn=dispatch_first)
+    assert any(item.content == "only in first session" for item in first.state.evidence)
+    assert second.state.evidence == []
+    assert second.dispatched == []
+
+
+def test_ingest_skips_tool_ack_json_and_merges_findings(empty_state: DiligenceState):
+    blob = """
+    {"accepted": true, "reason": "Accepted and merged", "warnings": []}
+    {"category": "problem", "content": "Demand exists on operator forums",
+     "evidence_type": "FACT", "source": "https://example.com", "confidence": 0.8}
+    """
+    ingest_agent_output(empty_state, blob, "problem_agent")
+    assert len(empty_state.evidence) == 1
+    assert empty_state.evidence[0].content.startswith("Demand exists")
