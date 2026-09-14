@@ -186,7 +186,7 @@ Gemini 2.5 Flash is ideal for development due to fast inference and a generous f
 2. Configure `.env`:
    ```env
    DEFAULT_MODEL_PROVIDER=gemini
-   DEFAULT_MODEL_ID=gemini-2.5-flash
+   DEFAULT_MODEL_ID=gemini-3.6-flash
    GEMINI_API_KEY=your_actual_gemini_key_here
    ```
 

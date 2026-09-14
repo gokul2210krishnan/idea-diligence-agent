@@ -87,3 +87,27 @@ def test_ingest_skips_tool_ack_json_and_merges_findings(empty_state: DiligenceSt
     ingest_agent_output(empty_state, blob, "problem_agent")
     assert len(empty_state.evidence) == 1
     assert empty_state.evidence[0].content.startswith("Demand exists")
+
+
+def test_python_loop_skips_failed_specialist_and_continues():
+    session = _session(max_iterations=5)
+    calls: list[str] = []
+
+    def dispatch(_sess: ResearchSession, name: str) -> str:
+        calls.append(name)
+        if name == "competition_agent":
+            raise RuntimeError("503 Service Unavailable")
+        return name
+
+    notes = run_research_loop(session, dispatch_fn=dispatch)
+    assert calls[:3] == ["problem_agent", "competition_agent", "economics_agent"]
+    assert "competition_agent failed" in notes
+    assert "Specialist skipped" in notes
+
+
+def test_transient_provider_errors_are_detected():
+    from src.agents.orchestrator import _is_transient_provider_error
+
+    assert _is_transient_provider_error(RuntimeError("503 Service Unavailable"))
+    assert _is_transient_provider_error(RuntimeError("status: UNAVAILABLE"))
+    assert not _is_transient_provider_error(RuntimeError("AccessDeniedException"))

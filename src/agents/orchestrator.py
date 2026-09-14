@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -27,6 +28,7 @@ from src.agents.problem_agent import create_problem_agent
 from src.governance.budget_governor import BudgetGovernor
 from src.governance.safety_gate import evaluate_scope_and_safety, ScopeResult
 from src.governance.state_updater import FindingProposal, validate_and_merge
+from src.model_provider import ModelRole, describe_model
 from src.models import DecisionImpact, DiligenceState, UnknownStatus
 from src.report import render_markdown_report
 from src.session import ResearchSession
@@ -50,6 +52,22 @@ _JSON_FINDING = re.compile(
 )
 
 DispatchFn = Callable[[ResearchSession, str], str]
+
+_DISPATCH_ATTEMPTS = 3
+_TRANSIENT_MARKERS = (
+    "503",
+    "429",
+    "unavailable",
+    "overloaded",
+    "resource_exhausted",
+    "timeout",
+    "temporarily",
+)
+
+
+def _is_transient_provider_error(exc: BaseException) -> bool:
+    text = f"{type(exc).__name__} {exc}".lower()
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
 
 
 def select_next_specialist(session: ResearchSession) -> Optional[str]:
@@ -137,11 +155,34 @@ def dispatch_specialist(session: ResearchSession, agent_name: str) -> str:
     if factory is None:
         return f"Unknown specialist '{agent_name}' — skipped."
 
-    agent = factory(tools=tools)
-    result = str(agent(_prompt_for(agent_name, session)))
-    ingest_agent_output(session.state, result, agent_name)
-    session.state.log_action(agent_name, f"Dispatched {agent_name}", result[:200])
-    return result
+    last_error: BaseException | None = None
+    for attempt in range(1, _DISPATCH_ATTEMPTS + 1):
+        agent = factory(tools=tools)
+        try:
+            result = str(agent(_prompt_for(agent_name, session)))
+            ingest_agent_output(session.state, result, agent_name)
+            session.state.log_action(agent_name, f"Dispatched {agent_name}", result[:200])
+            return result
+        except Exception as exc:
+            last_error = exc
+            transient = _is_transient_provider_error(exc)
+            if not transient or attempt == _DISPATCH_ATTEMPTS:
+                break
+            wait = 2 * attempt
+            print(
+                f"  [RETRY] {agent_name} hit {type(exc).__name__} "
+                f"(attempt {attempt}/{_DISPATCH_ATTEMPTS}); waiting {wait}s"
+            )
+            time.sleep(wait)
+
+    assert last_error is not None
+    note = (
+        f"{agent_name} unavailable ({type(last_error).__name__}). "
+        "Specialist skipped; investigation continues with remaining evidence."
+    )
+    print(f"  [SKIP] {note}")
+    session.state.log_action(agent_name, f"Failed {agent_name}", str(last_error)[:200])
+    return note
 
 
 def run_research_loop(
@@ -165,7 +206,16 @@ def run_research_loop(
         session.dispatched.append(agent_name)
 
         print(f"  [LOOP] Dispatching {agent_name} ({session.governor.remaining_summary()})")
-        notes.append(dispatch(session, agent_name))
+        try:
+            notes.append(dispatch(session, agent_name))
+        except Exception as exc:
+            note = (
+                f"{agent_name} failed ({type(exc).__name__}). "
+                "Specialist skipped; investigation continues with remaining evidence."
+            )
+            print(f"  [SKIP] {note}")
+            session.state.log_action(agent_name, f"Failed {agent_name}", str(exc)[:200])
+            notes.append(note)
 
     return "\n\n".join(notes)
 
@@ -198,6 +248,7 @@ def run_diligence(idea: str) -> tuple[str, DiligenceState, ScopeResult, dict]:
     print(f"  IDEA DILIGENCE AGENT — Governed Pipeline + Verdict Engine")
     print(f"{'='*60}")
     print(f"\n  Idea: {idea}")
+    print(f"  Model: {describe_model(ModelRole.SAFETY_GATE)}")
     print(f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     print(f"\n{'-'*60}")

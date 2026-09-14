@@ -5,7 +5,7 @@ from enum import Enum
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 from strands.models.bedrock import BedrockModel
 from strands.models.gemini import GeminiModel
@@ -49,7 +49,7 @@ def _get_config(role: ModelRole) -> tuple[ModelProvider, str]:
         ) from exc
 
     default_model = (
-        "gemini-2.5-flash"
+        "gemini-3.6-flash"
         if provider == ModelProvider.GEMINI
         else "us.anthropic.claude-sonnet-4-20250514-v1:0"
     )
@@ -61,6 +61,12 @@ def _get_config(role: ModelRole) -> tuple[ModelProvider, str]:
     )
 
     return provider, model_id
+
+
+def describe_model(role: ModelRole) -> str:
+    """Human-readable provider:model for logs (no secrets)."""
+    provider, model_id = _get_config(role)
+    return f"{provider.value}:{model_id}"
 
 
 def create_model(role: ModelRole):

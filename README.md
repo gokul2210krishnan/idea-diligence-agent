@@ -210,7 +210,7 @@ Gemini API provides immediate access with a free API key from Google AI Studio:
 
 ```env
 DEFAULT_MODEL_PROVIDER=gemini
-DEFAULT_MODEL_ID=gemini-2.5-flash
+DEFAULT_MODEL_ID=gemini-3.6-flash
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
